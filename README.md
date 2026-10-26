@@ -15,13 +15,16 @@ and publishes a verified AppImage for each new tag.
 
 - `.github/workflows/build.yml` runs every six hours and on manual dispatch.
 - It reads the newest non-draft release from `deepseek-ai/deepseek-harness`.
-- If this repository already has a release with that tag, it exits.
+- If this repository already has a release with that tag, it exits unless
+  dispatched with `force`.
 - Otherwise it shallow-clones the tag, applies `patches/0001-linux-appimage.patch`,
   installs dependencies, and runs the Desktop packaging command.
+- The build embeds a Gear Lever update source and the job verifies it with
+  `readelf` before continuing.
 - The resulting AppImage is launched under Xvfb; the job fails unless the app
   prints its local `dsh web: http://127.0.0.1…` URL.
-- The AppImage and its SHA-256 file are attached to a private release named
-  after the upstream tag.
+- The AppImage and its SHA-256 file are attached to a release named after the
+  upstream tag. A forced rebuild replaces the existing assets.
 
 ## Downloading a build
 
@@ -45,10 +48,18 @@ around instead of leaving an executable in the download folder.
 Install it from Flathub (`flatpak install flathub it.mijorus.gearlever`), then
 open the downloaded AppImage with Gear Lever and choose **Integrate**.
 
-Gear Lever's automatic update check needs a public download URL. Release assets
-in this private repository require GitHub authentication, so updates remain a
-manual `gh release download` followed by re-integrating the new file. A public
-mirror would be needed for automatic updates.
+The AppImage embeds its own update source
+(`gh-releases-zsync|kvnis|deepseek-harness-builds|latest-pre|deepseek-harness-*-linux-x86_64-unsigned.AppImage`),
+so Gear Lever finds this repository automatically and accepts its prereleases.
+To configure it by hand instead, choose **GitHub** and enter repository
+`kvnis/deepseek-harness-builds`, release file
+`deepseek-harness-*-linux-x86_64-unsigned.AppImage`, with **Allow pre-releases**
+enabled.
+
+**The repository must be public for update checks to work.** Gear Lever's
+GitHub updater calls the unauthenticated GitHub API and cannot read assets from
+a private repository. While this repository is private, downloads require
+`gh release download` and updates are manual.
 
 ## Triggering manually
 
@@ -56,6 +67,8 @@ mirror would be needed for automatic updates.
 gh workflow run build.yml -R kvnis/deepseek-harness-builds
 # or a specific tag
 gh workflow run build.yml -R kvnis/deepseek-harness-builds -f tag=dsh-v0.2.1-rc.3
+# rebuild and replace an existing release after a patch change
+gh workflow run build.yml -R kvnis/deepseek-harness-builds -f tag=dsh-v0.2.1-rc.3 -f force=true
 ```
 
 ## What the patch changes
@@ -74,8 +87,10 @@ two Linux-specific runtime problems found while building it:
   bundled WASM engine.
 
 It also disables release policy, update feeds and release records for the local
-unsigned Linux target, and teaches the packaging scripts the Linux Electron
-binary path, CLI permissions and artifact layout.
+unsigned Linux target, teaches the packaging scripts the Linux Electron binary
+path, CLI permissions and artifact layout, and embeds a Gear Lever /
+AppImageUpdate source in the runtime's `.upd_info` section when
+`DSH_LINUX_APPIMAGE_UPDATE_INFO` is set.
 
 ## Maintaining the patch
 
@@ -100,9 +115,12 @@ git apply --check patches/0001-linux-appimage.patch
 ## Caveats
 
 - Unofficial and **unsigned**. There is no code-signing or notarization step.
-- **No in-app updates.** Update feeds are disabled for unsigned builds, and
-  private release assets cannot be used by the updater without shipping a
-  credential.
+- **No in-app updates.** electron-updater has no feed; update checks are left to
+  Gear Lever. Built-in update checks report that no packaged update source
+  exists.
+- **Gear Lever needs this repository to be public.** Its GitHub updater has no
+  credential field and uses the unauthenticated API; a private repository can
+  only be downloaded manually with `gh`.
 - Private-repository Actions minutes count against the account plan. Scheduled
   checks that find no new tag finish in seconds; real builds take tens of
   minutes.

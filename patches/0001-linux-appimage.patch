@@ -19,6 +19,108 @@ index 61a73769..07e60313 100644
      "upload:mac:arm64": "tsx scripts/upload-target.ts mac-arm64",
      "upload:mac:x64": "tsx scripts/upload-target.ts mac-x64",
      "upload:win:x64": "tsx scripts/upload-target.ts win-x64",
+diff --git a/apps/desktop/scripts/appimage-update-info.ts b/apps/desktop/scripts/appimage-update-info.ts
+new file mode 100644
+index 00000000..da81f25d
+--- /dev/null
++++ b/apps/desktop/scripts/appimage-update-info.ts
+@@ -0,0 +1,96 @@
++/** Write AppImage update information into the runtime's .upd_info section. */
++
++import { closeSync, openSync, readSync, writeSync } from 'node:fs'
++import { resolve } from 'node:path'
++
++const ELF_HEADER_SIZE = 64
++const ELF_SECTION_HEADER_SIZE = 64
++const ELF_CLASS_64 = 2
++const ELF_DATA_LSB = 1
++const UPDATE_INFO_SECTION = '.upd_info'
++
++interface SectionHeader {
++  readonly name: number
++  readonly offset: bigint
++  readonly size: bigint
++}
++
++interface SectionTable {
++  readonly headers: readonly SectionHeader[]
++  readonly namesIndex: number
++}
++
++function readAt(fd: number, position: number, length: number): Buffer {
++  const buffer = Buffer.alloc(length)
++  const read = readSync(fd, buffer, 0, length, position)
++  if (read !== length) throw new Error('desktop AppImage: truncated ELF file')
++  return buffer
++}
++
++function sectionHeaders(fd: number): SectionTable {
++  const header = readAt(fd, 0, ELF_HEADER_SIZE)
++  if (header.readUInt32BE(0) !== 0x7f454c46) throw new Error('desktop AppImage: not an ELF file')
++  if (header[4] !== ELF_CLASS_64 || header[5] !== ELF_DATA_LSB) {
++    throw new Error('desktop AppImage: expected a 64-bit little-endian AppImage runtime')
++  }
++  const tableOffset = Number(header.readBigUInt64LE(0x28))
++  const entrySize = header.readUInt16LE(0x3a)
++  const entryCount = header.readUInt16LE(0x3c)
++  const namesIndex = header.readUInt16LE(0x3e)
++  if (entrySize !== ELF_SECTION_HEADER_SIZE || entryCount === 0 || namesIndex >= entryCount) {
++    throw new Error('desktop AppImage: invalid ELF section table')
++  }
++  const table = readAt(fd, tableOffset, entrySize * entryCount)
++  const headers = Array.from({ length: entryCount }, (_, index) => {
++    const offset = index * entrySize
++    return {
++      name: table.readUInt32LE(offset),
++      offset: table.readBigUInt64LE(offset + 0x18),
++      size: table.readBigUInt64LE(offset + 0x20),
++    }
++  })
++  return { headers, namesIndex }
++}
++
++function findSection(fd: number, table: SectionTable, name: string): SectionHeader | undefined {
++  const namesHeader = table.headers[table.namesIndex]
++  if (namesHeader === undefined) throw new Error('desktop AppImage: missing ELF section name table')
++  const names = readAt(fd, Number(namesHeader.offset), Number(namesHeader.size))
++  return table.headers.find((header) => {
++    const end = names.indexOf(0, header.name)
++    return end !== -1 && names.toString('utf8', header.name, end) === name
++  })
++}
++
++/**
++ * Write an AppImage update information string without moving any file data.
++ * @param path - AppImage whose runtime exposes a `.upd_info` section.
++ * @param updateInfo - AppImageUpdate-format string, for example `gh-releases-zsync|owner|repo|latest-pre|name*.AppImage`.
++ * @returns Nothing; the section is rewritten in place when its content differs.
++ */
++export function writeAppImageUpdateInfo(path: string, updateInfo: string): void {
++  if (updateInfo === '' || updateInfo.includes('\0') || updateInfo.includes('\n')) {
++    throw new Error('desktop AppImage: update information must be a nonempty single line')
++  }
++  const encoded = Buffer.from(`${updateInfo}\0`)
++  const fd = openSync(path, 'r+')
++  try {
++    const section = findSection(fd, sectionHeaders(fd), UPDATE_INFO_SECTION)
++    if (section === undefined) throw new Error(`desktop AppImage: ${path} has no ${UPDATE_INFO_SECTION} section`)
++    if (BigInt(encoded.length) > section.size) {
++      throw new Error(`desktop AppImage: update information exceeds the ${String(section.size)}-byte section`)
++    }
++    const offset = Number(section.offset)
++    if (!readAt(fd, offset, encoded.length).equals(encoded)) writeSync(fd, encoded, 0, encoded.length, offset)
++  } finally {
++    closeSync(fd)
++  }
++}
++
++if (process.argv[1] !== undefined && import.meta.filename === resolve(process.argv[1])) {
++  const [path, ...words] = process.argv.slice(2)
++  if (path === undefined || words.length === 0) {
++    throw new Error('usage: appimage-update-info.ts <AppImage> <update information>')
++  }
++  writeAppImageUpdateInfo(path, words.join(' '))
++}
 diff --git a/apps/desktop/scripts/desktop-build-paths.d.mts b/apps/desktop/scripts/desktop-build-paths.d.mts
 index c7b8173c..1c8a291e 100644
 --- a/apps/desktop/scripts/desktop-build-paths.d.mts
@@ -409,16 +511,19 @@ index 00000000..8018c009
 +  createRequire(join(options.root, 'package.json')).resolve('@img/sharp-wasm32/sharp.node')
 +}
 diff --git a/apps/desktop/scripts/package-target.ts b/apps/desktop/scripts/package-target.ts
-index be2f577e..ca8fa611 100644
+index be2f577e..13f7f35b 100644
 --- a/apps/desktop/scripts/package-target.ts
 +++ b/apps/desktop/scripts/package-target.ts
-@@ -2,15 +2,15 @@
+@@ -1,16 +1,17 @@
+ /** Build one release target with matching Electron and dsh architecture. */
  
  import { spawn } from 'node:child_process'
- import { mkdirSync, readFileSync, renameSync, rmSync, writeFileSync } from 'node:fs'
+-import { mkdirSync, readFileSync, renameSync, rmSync, writeFileSync } from 'node:fs'
 -import { parseArgs } from 'node:util'
++import { mkdirSync, readFileSync, readdirSync, renameSync, rmSync, writeFileSync } from 'node:fs'
  import { join, resolve } from 'node:path'
 +import { parseArgs } from 'node:util'
++import { writeAppImageUpdateInfo } from './appimage-update-info.ts'
  import {
    desktopBuildRecordFilename,
    resolveDesktopAutoUpdateConfig,
@@ -430,7 +535,7 @@ index be2f577e..ca8fa611 100644
  import { createPackagingRun, recordPackagingEvent } from './packaging-run.mjs'
  import { withWindowsSigningStage } from './windows-signing-stage.mjs'
  import { prepareWindowsSignatureCacheDirectory, resolveWindowsSignatureCacheDirectory } from './windows-signature-cache-directory.mjs'
-@@ -46,19 +46,22 @@ const DESKTOP_UPLOAD_CREDENTIAL_ENV_NAMES = new Set([
+@@ -46,19 +47,22 @@ const DESKTOP_UPLOAD_CREDENTIAL_ENV_NAMES = new Set([
  /** `--build-version` value that numbers a build after the ones already taken. */
  const AUTOMATIC_BUILD_VERSION = 'auto'
  
@@ -458,7 +563,7 @@ index be2f577e..ca8fa611 100644
    'mac-arm64': {
      name: 'mac-arm64',
      platform: 'darwin',
-@@ -80,6 +83,13 @@ const TARGETS: Record<DesktopPackageTargetName, DesktopPackageTarget> = {
+@@ -80,6 +84,13 @@ const TARGETS: Record<DesktopPackageTargetName, DesktopPackageTarget> = {
      builderPlatform: '--win',
      builderArch: '--x64',
    },
@@ -472,7 +577,7 @@ index be2f577e..ca8fa611 100644
  }
  
  /**
-@@ -121,7 +131,7 @@ export function withoutDesktopUploadCredentials(environment: NodeJS.ProcessEnv):
+@@ -121,7 +132,7 @@ export function withoutDesktopUploadCredentials(environment: NodeJS.ProcessEnv):
      .filter(([name]) => !DESKTOP_UPLOAD_CREDENTIAL_ENV_NAMES.has(name)))
  }
  
@@ -481,7 +586,7 @@ index be2f577e..ca8fa611 100644
    return Object.hasOwn(TARGETS, value)
  }
  
-@@ -138,6 +148,7 @@ function writeReleaseRecord(
+@@ -138,6 +149,7 @@ function writeReleaseRecord(
    environment: NodeJS.ProcessEnv,
    artifactsRoot: string,
  ): void {
@@ -489,7 +594,7 @@ index be2f577e..ca8fa611 100644
    const desktopVersion = packageVersion(join(APP_ROOT, 'package.json'), 'desktop package')
    const dshVersion = packageVersion(join(REPOSITORY_ROOT, 'package.json'), 'dsh package')
    if (desktopVersion !== dshVersion) {
-@@ -183,6 +194,9 @@ export function resolveDesktopPackageTarget(
+@@ -183,6 +195,9 @@ export function resolveDesktopPackageTarget(
    if (target.platform === 'darwin' && hostPlatform !== 'darwin') {
      throw new Error(`desktop package: ${name} requires a macOS build host`)
    }
@@ -499,7 +604,7 @@ index be2f577e..ca8fa611 100644
    if (name === 'mac-arm64' && hostArch !== 'arm64') {
      throw new Error('desktop package: mac-arm64 requires an Apple Silicon build host')
    }
-@@ -203,7 +217,7 @@ interface DesktopPackageInvocation {
+@@ -203,7 +218,7 @@ interface DesktopPackageInvocation {
    readonly requestedBuildVersion: string | undefined
  }
  
@@ -508,7 +613,7 @@ index be2f577e..ca8fa611 100644
    const name = `${platform === 'darwin' ? 'mac' : platform === 'win32' ? 'win' : platform}-${arch}`
    if (!isTargetName(name)) throw new Error(`desktop package: unsupported build host ${platform}-${arch}`)
    return name
-@@ -345,9 +359,11 @@ async function main(): Promise<void> {
+@@ -345,9 +360,11 @@ async function main(): Promise<void> {
    }
    const environment = target.platform === 'darwin' && invocation.unsigned
      ? localMacOSPackageEnvironment()
@@ -523,7 +628,7 @@ index be2f577e..ca8fa611 100644
    const productVersion = packageVersion(join(APP_ROOT, 'package.json'), 'desktop package')
    // Release settings come from the selected configuration files, so the version this run publishes is an
    // argument; the environment variable below only carries it to the child processes that build.
-@@ -386,7 +402,8 @@ async function main(): Promise<void> {
+@@ -386,7 +403,8 @@ async function main(): Promise<void> {
          ? packageTarget(invocation, environment, run)
          : withMacOSSigningKeychain(environment, signingEnvironment => packageTarget(invocation, signingEnvironment, run)), secrets)
      } else {
@@ -533,7 +638,7 @@ index be2f577e..ca8fa611 100644
      }
      success = true
    } catch (error) {
-@@ -404,6 +421,13 @@ async function main(): Promise<void> {
+@@ -404,6 +422,13 @@ async function main(): Promise<void> {
      const filename = `deepseek-harness-${buildVersion}-mac-${target.arch}${output.suffix}.dmg`
      console.log(`DMG: ${join(output.directory, filename)}`)
    }
@@ -547,7 +652,7 @@ index be2f577e..ca8fa611 100644
  }
  
  /**
-@@ -425,8 +449,10 @@ export async function packageTarget(
+@@ -425,8 +450,10 @@ export async function packageTarget(
    const mac = target.platform === 'darwin' ? resolveMacOSPackageSettings(environment) : undefined
    const packArguments = mac === undefined ? [] : ['--concurrency', String(mac.packConcurrency)]
    const buildPaths = desktopTargetBuildPaths(target.name)
@@ -560,6 +665,23 @@ index be2f577e..ca8fa611 100644
      rmSync(releaseRecordPath, { force: true })
      rmSync(`${releaseRecordPath}.tmp`, { force: true })
    }
+@@ -526,6 +553,16 @@ export async function packageTarget(
+   if (!invocation.directory && !invocation.unsigned && !invocation.skipNotarization) {
+     writeReleaseRecord(target, electronBuilderEnv, buildPaths.artifacts)
+   }
++  const updateInfo = target.platform === 'linux' && !invocation.directory
++    ? environment.DSH_LINUX_APPIMAGE_UPDATE_INFO?.trim()
++    : undefined
++  if (updateInfo !== undefined && updateInfo !== '') {
++    await packagingStep(process.env.DSH_DESKTOP_PACKAGING_RUN_DIR, 'linux:appimage-update-info', async () => {
++      const artifact = readdirSync(artifactsRoot).find(name => name.endsWith('.AppImage'))
++      if (artifact === undefined) throw new Error(`desktop package: no AppImage in ${artifactsRoot}`)
++      writeAppImageUpdateInfo(join(artifactsRoot, artifact), updateInfo)
++    })
++  }
+   if (journal) recordPackagingEvent(journal, { type: 'artifacts', directory: artifactsRoot })
+ }
+ 
 diff --git a/apps/desktop/scripts/prepare-cli.ts b/apps/desktop/scripts/prepare-cli.ts
 index d2b9e142..ad60996b 100644
 --- a/apps/desktop/scripts/prepare-cli.ts

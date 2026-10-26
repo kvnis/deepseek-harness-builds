@@ -9,6 +9,11 @@ on:
         description: Upstream release tag; blank builds the newest release
         required: false
         type: string
+      force:
+        description: Rebuild and replace the release for this tag
+        required: false
+        type: boolean
+        default: false
 
 permissions:
   contents: write
@@ -30,6 +35,7 @@ jobs:
           GH_TOKEN: ${{ github.token }}
           GH_REPO: ${{ github.repository }}
           REQUESTED_TAG: ${{ inputs.tag }}
+          FORCE: ${{ inputs.force }}
         run: |
           set -euo pipefail
           if [ -n "${REQUESTED_TAG:-}" ]; then
@@ -45,7 +51,10 @@ jobs:
             dsh-v[0-9]*) ;;
             *) echo "refusing unexpected upstream tag: ${tag:-<none>}" >&2; exit 1 ;;
           esac
-          if gh release view "$tag" >/dev/null 2>&1; then
+          if [ "${FORCE:-false}" = "true" ]; then
+            build=true
+            echo "Force rebuild of $tag (prerelease=$prerelease)." >> "$GITHUB_STEP_SUMMARY"
+          elif gh release view "$tag" >/dev/null 2>&1; then
             build=false
             echo "$tag already has a release; nothing to do." >> "$GITHUB_STEP_SUMMARY"
           else
@@ -95,7 +104,16 @@ jobs:
         working-directory: upstream
         env:
           CI: true
+          DSH_LINUX_APPIMAGE_UPDATE_INFO: 'gh-releases-zsync|kvnis|deepseek-harness-builds|latest-pre|deepseek-harness-*-linux-x86_64-unsigned.AppImage'
         run: pnpm --filter @deepseek-ai/dsh-desktop run package:linux:x64:unsigned
+
+      - name: Verify Gear Lever update source
+        working-directory: upstream
+        run: |
+          set -euo pipefail
+          app=$(find apps/desktop/.desktop-build/targets/linux-x64/unsigned-artifacts -maxdepth 1 -name '*.AppImage' -print -quit)
+          test -n "$app"
+          readelf --string-dump=.upd_info --wide "$app" | grep -F 'gh-releases-zsync|kvnis|deepseek-harness-builds|latest-pre|'
 
       - name: Smoke-test AppImage
         working-directory: upstream
@@ -130,12 +148,19 @@ jobs:
           Unofficial Linux x86_64 AppImage built from [deepseek-ai/deepseek-harness](https://github.com/deepseek-ai/deepseek-harness) tag \`$TAG\` (${commit}).
 
           - Unsigned local build; no code signing or notarization.
-          - No in-app updates or update feed.
+          - In-app updates remain disabled; Gear Lever can manage updates when this release repository is public.
           - The AppImage was launched under Xvfb and had to serve its local \`dsh web\` URL before this release was created.
           - SHA-256 is attached as \`$(basename "$app").sha256\`.
+          - Update checks use the embedded Gear Lever / AppImageUpdate source for this repository.
 
           DeepSeek does not publish a Linux build; this artifact is unofficial.
           EOF
-          args=(--title "DeepSeek Harness $version — Linux x86_64" --notes-file notes.md --target "$(git rev-parse HEAD)")
-          if [ "$PRERELEASE" = "true" ]; then args+=(--prerelease); fi
-          gh release create "$TAG" "$app" "$app.sha256" "${args[@]}"
+          title="DeepSeek Harness $version — Linux x86_64"
+          if gh release view "$TAG" >/dev/null 2>&1; then
+            gh release upload "$TAG" "$app" "$app.sha256" --clobber
+            gh release edit "$TAG" --title "$title" --notes-file notes.md
+          else
+            args=(--title "$title" --notes-file notes.md --target "$(git rev-parse HEAD)")
+            if [ "$PRERELEASE" = "true" ]; then args+=(--prerelease); fi
+            gh release create "$TAG" "$app" "$app.sha256" "${args[@]}"
+          fi
