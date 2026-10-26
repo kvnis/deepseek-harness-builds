@@ -62,7 +62,7 @@ jobs:
     needs: resolve
     if: needs.resolve.outputs.build == 'true'
     runs-on: ubuntu-24.04
-    timeout-minutes: 120
+    timeout-minutes: 180
     env:
       TAG: ${{ needs.resolve.outputs.tag }}
       PRERELEASE: ${{ needs.resolve.outputs.prerelease }}
