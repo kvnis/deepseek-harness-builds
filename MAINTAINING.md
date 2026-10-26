@@ -64,6 +64,7 @@ git apply --check patches/0001-linux-appimage.patch
 
 ## Visibility
 
-Gear Lever's GitHub updater is unauthenticated. Update checks only work while
-`kvnis/deepseek-harness-builds` is public; private assets require
-`gh release download`.
+Gear Lever's GitHub updater is unauthenticated. While this repository is
+private, Gear Lever cannot check for updates; download builds with
+`gh release download`. Make the repository public before advertising Gear
+Lever updates.
