@@ -1,8 +1,16 @@
 diff --git a/apps/desktop/package.json b/apps/desktop/package.json
-index 61a73769..af3f3348 100644
+index 61a73769..07e60313 100644
 --- a/apps/desktop/package.json
 +++ b/apps/desktop/package.json
-@@ -35,6 +35,8 @@
+@@ -1,6 +1,7 @@
+ {
+   "name": "@deepseek-ai/dsh-desktop",
+   "description": "Electron desktop shell for a bundled dsh runtime and external plugins",
++  "desktopName": "deepseek-harness.desktop",
+   "version": "0.2.1-rc.3",
+   "private": true,
+   "license": "MIT",
+@@ -35,6 +36,8 @@
      "package:win:x64": "tsx scripts/package-target.ts win-x64",
      "package:win:x64:unsigned": "tsx scripts/package-target.ts win-x64 --unsigned",
      "package:win:x64:dir": "tsx scripts/package-target.ts win-x64 --dir",
@@ -278,7 +286,7 @@ index d544ce6d..2f9f1122 100644
  
  function readManifest(path: string): PackageManifest {
 diff --git a/apps/desktop/scripts/electron-builder-config.mjs b/apps/desktop/scripts/electron-builder-config.mjs
-index 4b9cd27a..85164758 100644
+index 4b9cd27a..c37b882b 100644
 --- a/apps/desktop/scripts/electron-builder-config.mjs
 +++ b/apps/desktop/scripts/electron-builder-config.mjs
 @@ -65,7 +65,7 @@ export function createElectronBuilderConfig(
@@ -298,12 +306,14 @@ index 4b9cd27a..85164758 100644
      `**/node_modules/@deepseek-ai/libreoffice-kit-${resolvedPlatform}-${resolvedArch}/**/*`]
    const windowsSigner = packagesWindows && !unsigned
      ? createWindowsTokenSigner({
-@@ -246,6 +247,8 @@ export function createElectronBuilderConfig(
+@@ -246,6 +247,10 @@ export function createElectronBuilderConfig(
        target: ['nsis'],
      },
      linux: {
 +      icon: fileURLToPath(new URL('../resources/icon.png', import.meta.url)),
 +      executableName: 'deepseek-harness',
++      // Match the installed .desktop filename to Electron's app_id/WM_CLASS.
++      syncDesktopName: true,
        category: 'Development',
        target: ['AppImage'],
      },
@@ -701,6 +711,41 @@ index e6afd574..4aa028e6 100644
      NARB_NATIVE_CACHE_DIR: cache, NARB_DISABLE_NATIVE_CACHE: '0' }
    try {
      const archive = runtimeArchivePath(root)
+diff --git a/apps/desktop/src/main.ts b/apps/desktop/src/main.ts
+index 2afdfd71..fa1237c0 100644
+--- a/apps/desktop/src/main.ts
++++ b/apps/desktop/src/main.ts
+@@ -205,6 +205,11 @@ function platformLoginUrl(authorizeUrl: string): string {
+   return url.href
+ }
+ 
++/** Icon available at runtime: packaged resources carry icon-windows.png as icon.png. */
++function desktopIconPath(): string {
++  return app.isPackaged ? join(process.resourcesPath, 'icon.png') : join(app.getAppPath(), 'resources', 'icon-windows.png')
++}
++
+ function createWindow(preload: string, show = false, primary = false): BrowserWindow {
+   const window = new BrowserWindow({
+     width: 1280,
+@@ -212,6 +217,8 @@ function createWindow(preload: string, show = false, primary = false): BrowserWi
+     minWidth: 520,
+     minHeight: 600,
+     show,
++    // GNOME and KDE take the taskbar icon from the window, not the AppImage's .desktop file.
++    ...(process.platform === 'linux' ? { icon: desktopIconPath() } : {}),
+     ...(process.platform === 'win32' && primary ? {
+       titleBarStyle: 'hidden' as const,
+       titleBarOverlay: { height: WINDOWS_TITLEBAR_HEIGHT, color: chromeFallbackFill(),
+@@ -929,8 +936,7 @@ async function main(): Promise<void> {
+     updates.dispose()
+   })
+ 
+-  const applicationIconPath = development ? join(app.getAppPath(), 'resources', 'icon-windows.png')
+-    : join(process.resourcesPath, 'icon.png')
++  const applicationIconPath = desktopIconPath()
+   app.setAboutPanelOptions({
+     applicationName: 'DeepSeek Harness',
+     applicationVersion: app.getVersion(),
 diff --git a/package.json b/package.json
 index d6d1d781..59b85b4f 100644
 --- a/package.json
