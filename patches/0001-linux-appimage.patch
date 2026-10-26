@@ -399,7 +399,7 @@ index 00000000..8018c009
 +  createRequire(join(options.root, 'package.json')).resolve('@img/sharp-wasm32/sharp.node')
 +}
 diff --git a/apps/desktop/scripts/package-target.ts b/apps/desktop/scripts/package-target.ts
-index be2f577e..3b6f5aea 100644
+index be2f577e..ca8fa611 100644
 --- a/apps/desktop/scripts/package-target.ts
 +++ b/apps/desktop/scripts/package-target.ts
 @@ -2,15 +2,15 @@
@@ -528,7 +528,7 @@ index be2f577e..3b6f5aea 100644
      console.log(`DMG: ${join(output.directory, filename)}`)
    }
 +  if (success && target.platform === 'linux' && !invocation.directory && !invocation.prepareOnly) {
-+    const paths = desktopTargetBuildPaths(target.name, environment)
++    const paths = desktopTargetBuildPaths(target.name)
 +    const output = desktopArtifactOutput(paths, invocation)
 +    // electron-builder renders ${arch} as x86_64 for x64 Linux artifacts.
 +    const filename = `deepseek-harness-${buildVersion}-linux-${target.arch === 'x64' ? 'x86_64' : target.arch}${output.suffix}.AppImage`
