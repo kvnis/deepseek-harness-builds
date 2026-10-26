@@ -131,7 +131,8 @@ jobs:
         run: |
           set -euo pipefail
           app=$(find apps/desktop/.desktop-build/targets/linux-x64/unsigned-artifacts -maxdepth 1 -name '*.AppImage' -print -quit)
-          sha256sum "$app" | sed 's#.*/##' > "$app.sha256"
+          test -n "$app"
+          (cd "$(dirname "$app")" && sha256sum "$(basename "$app")") > "$app.sha256"
           cat "$app.sha256"
 
       - name: Publish release
