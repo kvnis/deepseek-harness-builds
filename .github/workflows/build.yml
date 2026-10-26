@@ -134,7 +134,7 @@ jobs:
           sha256sum "$app" | sed 's#.*/##' > "$app.sha256"
           cat "$app.sha256"
 
-      - name: Publish private release
+      - name: Publish release
         env:
           GH_TOKEN: ${{ github.token }}
           GH_REPO: ${{ github.repository }}
@@ -148,10 +148,9 @@ jobs:
           Unofficial Linux x86_64 AppImage built from [deepseek-ai/deepseek-harness](https://github.com/deepseek-ai/deepseek-harness) tag \`$TAG\` (${commit}).
 
           - Unsigned local build; no code signing or notarization.
-          - In-app updates remain disabled; Gear Lever can manage updates when this release repository is public.
+          - No in-app updater; Gear Lever reads the embedded update source for this repository.
           - The AppImage was launched under Xvfb and had to serve its local \`dsh web\` URL before this release was created.
           - SHA-256 is attached as \`$(basename "$app").sha256\`.
-          - Update checks use the embedded Gear Lever / AppImageUpdate source for this repository.
 
           DeepSeek does not publish a Linux build; this artifact is unofficial.
           EOF
