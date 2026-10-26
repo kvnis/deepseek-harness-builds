@@ -1,7 +1,11 @@
-# DeepSeek Harness — Linux AppImage builds
+# DeepSeek Harness — unofficial builds
 
-Unofficial, automated Linux x86_64 AppImage builds of
+Unofficial, automated builds of
 [DeepSeek Harness](https://github.com/deepseek-ai/deepseek-harness).
+
+The repository is named for all future targets rather than today's single one.
+Currently it produces **Linux x86_64 AppImages**; other formats and platforms
+can be added without renaming anything.
 
 DeepSeek does not publish a Linux build. This private repository keeps the Linux
 packaging changes as a patch, watches upstream releases (including prereleases),
@@ -24,19 +28,34 @@ and publishes a verified AppImage for each new tag.
 Private release assets need authentication:
 
 ```sh
-gh release download dsh-v0.2.1-rc.3 -R kvnis/dsh-linux-appimage
+gh release download dsh-v0.2.1-rc.3 -R kvnis/deepseek-harness-builds
 chmod +x deepseek-harness-*.AppImage
 ./deepseek-harness-*.AppImage
 ```
 
 If Chromium's sandbox refuses to start, add `--no-sandbox`.
 
+### Managing AppImages with Gear Lever
+
+[Gear Lever](https://flathub.org/apps/it.mijorus.gearlever) is the recommended
+way to manage the AppImage on a desktop. It integrates the file into the
+application menu, extracts the icon and metadata, and keeps multiple versions
+around instead of leaving an executable in the download folder.
+
+Install it from Flathub (`flatpak install flathub it.mijorus.gearlever`), then
+open the downloaded AppImage with Gear Lever and choose **Integrate**.
+
+Gear Lever's automatic update check needs a public download URL. Release assets
+in this private repository require GitHub authentication, so updates remain a
+manual `gh release download` followed by re-integrating the new file. A public
+mirror would be needed for automatic updates.
+
 ## Triggering manually
 
 ```sh
-gh workflow run build.yml -R kvnis/dsh-linux-appimage
+gh workflow run build.yml -R kvnis/deepseek-harness-builds
 # or a specific tag
-gh workflow run build.yml -R kvnis/dsh-linux-appimage -f tag=dsh-v0.2.1-rc.3
+gh workflow run build.yml -R kvnis/deepseek-harness-builds -f tag=dsh-v0.2.1-rc.3
 ```
 
 ## What the patch changes

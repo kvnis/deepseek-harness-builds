@@ -1,4 +1,4 @@
-name: Build Linux AppImage
+name: Build DeepSeek Harness artifacts
 
 on:
   schedule:
