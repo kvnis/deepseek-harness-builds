@@ -117,15 +117,15 @@ jobs:
           cat "$app.sha256"
 
       - name: Publish private release
-        working-directory: upstream
         env:
           GH_TOKEN: ${{ github.token }}
           GH_REPO: ${{ github.repository }}
         run: |
           set -euo pipefail
-          app=$(find apps/desktop/.desktop-build/targets/linux-x64/unsigned-artifacts -maxdepth 1 -name '*.AppImage' -print -quit)
+          app=$(find upstream/apps/desktop/.desktop-build/targets/linux-x64/unsigned-artifacts -maxdepth 1 -name '*.AppImage' -print -quit)
+          test -n "$app"
           version=${TAG#dsh-}
-          commit=$(git rev-parse --short HEAD)
+          commit=$(git -C upstream rev-parse --short HEAD)
           cat > notes.md <<EOF
           Unofficial Linux x86_64 AppImage built from [deepseek-ai/deepseek-harness](https://github.com/deepseek-ai/deepseek-harness) tag \`$TAG\` (${commit}).
 
@@ -136,6 +136,6 @@ jobs:
 
           DeepSeek does not publish a Linux build; this artifact is unofficial.
           EOF
-          args=(--title "DeepSeek Harness $version — Linux x86_64" --notes-file notes.md)
+          args=(--title "DeepSeek Harness $version — Linux x86_64" --notes-file notes.md --target "$(git rev-parse HEAD)")
           if [ "$PRERELEASE" = "true" ]; then args+=(--prerelease); fi
           gh release create "$TAG" "$app" "$app.sha256" "${args[@]}"
