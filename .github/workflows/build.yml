@@ -1,0 +1,141 @@
+name: Build Linux AppImage
+
+on:
+  schedule:
+    - cron: '17 */6 * * *'
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: Upstream release tag; blank builds the newest release
+        required: false
+        type: string
+
+permissions:
+  contents: write
+
+concurrency:
+  group: linux-appimage
+  cancel-in-progress: false
+
+jobs:
+  resolve:
+    runs-on: ubuntu-24.04
+    outputs:
+      tag: ${{ steps.release.outputs.tag }}
+      prerelease: ${{ steps.release.outputs.prerelease }}
+      build: ${{ steps.release.outputs.build }}
+    steps:
+      - id: release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          REQUESTED_TAG: ${{ inputs.tag }}
+        run: |
+          set -euo pipefail
+          if [ -n "${REQUESTED_TAG:-}" ]; then
+            tag="$REQUESTED_TAG"
+            prerelease=$(gh api "repos/deepseek-ai/deepseek-harness/releases/tags/$tag" --jq '.prerelease' 2>/dev/null || echo false)
+          else
+            record=$(gh api 'repos/deepseek-ai/deepseek-harness/releases?per_page=20' \
+              --jq '[.[] | select(.draft == false)][0] | "\(.tag_name)\t\(.prerelease)"')
+            tag=${record%%$'\t'*}
+            prerelease=${record##*$'\t'}
+          fi
+          case "$tag" in
+            dsh-v[0-9]*) ;;
+            *) echo "refusing unexpected upstream tag: ${tag:-<none>}" >&2; exit 1 ;;
+          esac
+          if gh release view "$tag" >/dev/null 2>&1; then
+            build=false
+            echo "$tag already has a release; nothing to do." >> "$GITHUB_STEP_SUMMARY"
+          else
+            build=true
+            echo "Building $tag (prerelease=$prerelease)." >> "$GITHUB_STEP_SUMMARY"
+          fi
+          {
+            echo "tag=$tag"
+            echo "prerelease=$prerelease"
+            echo "build=$build"
+          } >> "$GITHUB_OUTPUT"
+
+  build:
+    needs: resolve
+    if: needs.resolve.outputs.build == 'true'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 120
+    env:
+      TAG: ${{ needs.resolve.outputs.tag }}
+      PRERELEASE: ${{ needs.resolve.outputs.prerelease }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Free disk space
+        run: |
+          sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc /opt/hostedtoolcache/CodeQL
+          df -h /
+
+      - name: Clone upstream release tag
+        run: git clone --depth 1 --branch "$TAG" https://github.com/deepseek-ai/deepseek-harness.git upstream
+
+      - name: Apply Linux patch
+        run: git -C upstream apply --verbose "$GITHUB_WORKSPACE/patches/0001-linux-appimage.patch"
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+
+      - name: Install pnpm
+        run: npm install --global pnpm@11.28.5
+
+      - name: Install dependencies
+        working-directory: upstream
+        run: pnpm install --frozen-lockfile
+
+      - name: Build AppImage
+        working-directory: upstream
+        env:
+          CI: true
+        run: pnpm --filter @deepseek-ai/dsh-desktop run package:linux:x64:unsigned
+
+      - name: Smoke-test AppImage
+        working-directory: upstream
+        run: |
+          set -euo pipefail
+          app=$(find apps/desktop/.desktop-build/targets/linux-x64/unsigned-artifacts -maxdepth 1 -name '*.AppImage' -print -quit)
+          test -n "$app"
+          command -v xvfb-run >/dev/null || sudo apt-get install -y xvfb
+          xvfb-run -a timeout 180 "$app" --appimage-extract-and-run --no-sandbox > /tmp/appimage-smoke.log 2>&1 || true
+          cat /tmp/appimage-smoke.log
+          grep -q 'dsh web: http://127.0.0.1' /tmp/appimage-smoke.log
+
+      - name: Checksum
+        working-directory: upstream
+        run: |
+          set -euo pipefail
+          app=$(find apps/desktop/.desktop-build/targets/linux-x64/unsigned-artifacts -maxdepth 1 -name '*.AppImage' -print -quit)
+          sha256sum "$app" | sed 's#.*/##' > "$app.sha256"
+          cat "$app.sha256"
+
+      - name: Publish private release
+        working-directory: upstream
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+        run: |
+          set -euo pipefail
+          app=$(find apps/desktop/.desktop-build/targets/linux-x64/unsigned-artifacts -maxdepth 1 -name '*.AppImage' -print -quit)
+          version=${TAG#dsh-}
+          commit=$(git rev-parse --short HEAD)
+          cat > notes.md <<EOF
+          Unofficial Linux x86_64 AppImage built from [deepseek-ai/deepseek-harness](https://github.com/deepseek-ai/deepseek-harness) tag \`$TAG\` (${commit}).
+
+          - Unsigned local build; no code signing or notarization.
+          - No in-app updates or update feed.
+          - The AppImage was launched under Xvfb and had to serve its local \`dsh web\` URL before this release was created.
+          - SHA-256 is attached as \`$(basename "$app").sha256\`.
+
+          DeepSeek does not publish a Linux build; this artifact is unofficial.
+          EOF
+          args=(--title "DeepSeek Harness $version — Linux x86_64" --notes-file notes.md)
+          if [ "$PRERELEASE" = "true" ]; then args+=(--prerelease); fi
+          gh release create "$TAG" "$app" "$app.sha256" "${args[@]}"
