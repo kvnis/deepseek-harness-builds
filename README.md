@@ -35,7 +35,7 @@ If Chromium's sandbox refuses to start, run it with `--no-sandbox`.
 [Gear Lever](https://flathub.org/apps/it.mijorus.gearlever) is the recommended
 way to install and update the AppImage. It adds the app to your menu, extracts
 its icon and metadata, keeps older versions, and reads the update source
-embedded in the file.
+embedded in the file together with the `.zsync` published beside it.
 
 ```sh
 flatpak install flathub it.mijorus.gearlever

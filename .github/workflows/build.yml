@@ -104,7 +104,7 @@ jobs:
         working-directory: upstream
         env:
           CI: true
-          DSH_LINUX_APPIMAGE_UPDATE_INFO: 'gh-releases-zsync|kvnis|deepseek-harness-builds|latest-pre|deepseek-harness-*-linux-x86_64-unsigned.AppImage'
+          DSH_LINUX_APPIMAGE_UPDATE_INFO: 'gh-releases-zsync|kvnis|deepseek-harness-builds|latest-pre|deepseek-harness-*-linux-x86_64-unsigned.AppImage.zsync'
         run: pnpm --filter @deepseek-ai/dsh-desktop run package:linux:x64:unsigned
 
       - name: Verify Gear Lever update source
@@ -113,7 +113,7 @@ jobs:
           set -euo pipefail
           app=$(find apps/desktop/.desktop-build/targets/linux-x64/unsigned-artifacts -maxdepth 1 -name '*.AppImage' -print -quit)
           test -n "$app"
-          readelf --string-dump=.upd_info --wide "$app" | grep -F 'gh-releases-zsync|kvnis|deepseek-harness-builds|latest-pre|'
+          readelf --string-dump=.upd_info --wide "$app" | grep -F 'gh-releases-zsync|kvnis|deepseek-harness-builds|latest-pre|deepseek-harness-*-linux-x86_64-unsigned.AppImage.zsync'
 
       - name: Smoke-test AppImage
         working-directory: upstream
@@ -125,6 +125,20 @@ jobs:
           xvfb-run -a timeout 180 "$app" --appimage-extract-and-run --no-sandbox > /tmp/appimage-smoke.log 2>&1 || true
           cat /tmp/appimage-smoke.log
           grep -q 'dsh web: http://127.0.0.1' /tmp/appimage-smoke.log
+
+      - name: Create zsync asset
+        working-directory: upstream
+        run: |
+          set -euo pipefail
+          app=$(find apps/desktop/.desktop-build/targets/linux-x64/unsigned-artifacts -maxdepth 1 -name '*.AppImage' -print -quit)
+          test -n "$app"
+          sudo apt-get update -qq
+          sudo apt-get install -y zsync
+          name=$(basename "$app")
+          url="https://github.com/$GITHUB_REPOSITORY/releases/download/$TAG/$name"
+          (cd "$(dirname "$app")" && zsyncmake -u "$url" -o "$name.zsync" "$name")
+          test -s "$app.zsync"
+          head -n 8 "$app.zsync"
 
       - name: Checksum
         working-directory: upstream
@@ -150,6 +164,7 @@ jobs:
 
           - Unsigned local build; no code signing or notarization.
           - No in-app updater; Gear Lever reads the embedded update source for this repository.
+          - A \`.zsync\` file is attached for AppImageUpdate and Gear Lever.
           - The AppImage was launched under Xvfb and had to serve its local \`dsh web\` URL before this release was created.
           - SHA-256 is attached as \`$(basename "$app").sha256\`.
 
@@ -157,10 +172,10 @@ jobs:
           EOF
           title="DeepSeek Harness $version — Linux x86_64"
           if gh release view "$TAG" >/dev/null 2>&1; then
-            gh release upload "$TAG" "$app" "$app.sha256" --clobber
+            gh release upload "$TAG" "$app" "$app.sha256" "$app.zsync" --clobber
             gh release edit "$TAG" --title "$title" --notes-file notes.md
           else
             args=(--title "$title" --notes-file notes.md --target "$(git rev-parse HEAD)")
             if [ "$PRERELEASE" = "true" ]; then args+=(--prerelease); fi
-            gh release create "$TAG" "$app" "$app.sha256" "${args[@]}"
+            gh release create "$TAG" "$app" "$app.sha256" "$app.zsync" "${args[@]}"
           fi

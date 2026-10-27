@@ -13,11 +13,12 @@ the automation.
 2. `build` checks out the tag, applies `patches/0001-linux-appimage.patch`,
    installs dependencies, and runs
    `pnpm --filter @deepseek-ai/dsh-desktop run package:linux:x64:unsigned`.
-3. The AppImage is launched under Xvfb; the job fails unless it prints its
+3. `.upd_info` is checked for
+   `gh-releases-zsync|kvnis|deepseek-harness-builds|latest-pre|….AppImage.zsync`.
+4. The AppImage is launched under Xvfb; the job fails unless it prints its
    `dsh web: http://127.0.0.1…` URL.
-4. `.upd_info` is checked for
-   `gh-releases-zsync|kvnis|deepseek-harness-builds|latest-pre|…`.
-5. The asset and `.sha256` are created or replaced on the release.
+5. `zsyncmake` writes `<AppImage>.zsync`; the asset, `.zsync`, and `.sha256` are
+   created or replaced on the release.
 
 Manual runs:
 
@@ -41,7 +42,8 @@ unsigned `linux-x64` target and works around three Linux-only problems:
   so the running window matches the launcher.
 
 It also disables release policy, update feeds, and release records for the local
-unsigned target and writes the Gear Lever update source into `.upd_info`.
+unsigned target and writes the Gear Lever update source (ending in `.zsync`)
+into `.upd_info`.
 
 ## Rebuilding the patch
 
