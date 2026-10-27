@@ -64,7 +64,5 @@ git apply --check patches/0001-linux-appimage.patch
 
 ## Visibility
 
-Gear Lever's GitHub updater is unauthenticated. While this repository is
-private, Gear Lever cannot check for updates; download builds with
-`gh release download`. Make the repository public before advertising Gear
-Lever updates.
+Gear Lever's GitHub updater is unauthenticated. Update checks and downloads
+require this repository to be public; private assets need `gh release download`.
