@@ -39,10 +39,11 @@ again does not start a second copy either: it re-shows the instance already
 running.
 
 - **Quit:** menu **Application → Quit**.
-- **Reload the page:** menu **Application → Reload Page** (`Ctrl+R`). This is
-  what to use when the plugin market reports itself as stopped while the plugins
-  page still lists it as running: the market keeps a stale error on screen until
-  the page reloads.
+- **Reload the page:** menu **Application → Reload Page** (`Ctrl+R`). Use it
+  after installing a plugin, and whenever the UI looks wrong afterwards: the
+  page keeps the code it loaded at start, so an error it showed earlier can stay
+  on screen after the cause is gone. Plugins installed with the dshmarket plugin
+  may need a reload, or a quit and restart, before they work.
 
 If the menu has no reload item, the build predates it: quit and start the
 AppImage again instead.
