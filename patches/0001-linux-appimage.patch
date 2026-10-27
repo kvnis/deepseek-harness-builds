@@ -903,6 +903,22 @@ index 2afdfd71..fa1237c0 100644
    app.setAboutPanelOptions({
      applicationName: 'DeepSeek Harness',
      applicationVersion: app.getVersion(),
+@@ -1000,9 +1006,15 @@
+         app.relaunch()
+         quitWithoutConfirmation()
+       } },
+     ] : [],
++    // The packaged build registers no reload accelerator of its own: closing the
++    // window only hides it and a relaunch reuses the running Host, so Linux needs
++    // an explicit way back to a page a plugin reload left stale.
++    ...process.platform === 'linux'
++      ? [{ label: currentDesktopLocale().messages.reloadPageMenu, role: 'reload' as const }]
++      : [],
+     { type: 'separator' },
+     ...hideCommands,
+     { role: 'quit', ...(darwin ? { label: currentDesktopLocale().messages.quitApplication }
+       : process.platform === 'win32' ? { label: currentDesktopLocale().messages.exitApplication } : {}) },
+   ]
 diff --git a/package.json b/package.json
 index d6d1d781..59b85b4f 100644
 --- a/package.json

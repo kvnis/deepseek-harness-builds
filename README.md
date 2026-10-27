@@ -30,6 +30,23 @@ chmod +x deepseek-harness-*.AppImage
 
 If Chromium's sandbox refuses to start, run it with `--no-sandbox`.
 
+## Quitting and reloading
+
+Closing the window does **not** quit. The window hides, the page and its Host
+process keep running, and the Linux build has no tray icon to bring it back — so
+the app looks gone while it still holds the profile. Launching the AppImage
+again does not start a second copy either: it re-shows the instance already
+running.
+
+- **Quit:** menu **Application → Quit**.
+- **Reload the page:** menu **Application → Reload Page** (`Ctrl+R`). This is
+  what to use when the plugin market reports itself as stopped while the plugins
+  page still lists it as running: the market keeps a stale error on screen until
+  the page reloads.
+
+If the menu has no reload item, the build predates it: quit and start the
+AppImage again instead.
+
 ## Gear Lever
 
 [Gear Lever](https://flathub.org/apps/it.mijorus.gearlever) is the recommended
@@ -41,8 +58,13 @@ embedded in the file together with the `.zsync` published beside it.
 flatpak install flathub it.mijorus.gearlever
 ```
 
-Open the AppImage in Gear Lever and choose **Integrate**. Update checks use this
-repository's releases, including prereleases.
+Open the AppImage in Gear Lever and choose **Integrate**. Gear Lever reads the
+update source embedded in the file, which points at this repository's releases,
+prereleases included.
+
+This repository checks `deepseek-ai/deepseek-harness` for new releases every six
+hours and publishes a build when it finds one, so a new upstream version reaches
+Gear Lever within about six hours of its release.
 
 To add the source by hand, choose **GitHub** and enter repository
 `kvnis/deepseek-harness-builds`, release file
@@ -60,8 +82,9 @@ enabled.
 - **Unofficial and unsigned.** The AppImage has no code signature, so your
   desktop may warn on first launch.
 - **Linux x86_64 only.**
-- **No in-app updates.** The app's own updater has no feed configured; updates
-  come from Gear Lever or a new download.
+- **No in-app updates.** **Application → Check for Updates…** does not work:
+  these builds carry no update feed, so the check ends in a failure dialog.
+  Updates come from Gear Lever or a new download.
 - **Prereleases.** Upstream currently ships prereleases, and these builds follow
   them.
 
