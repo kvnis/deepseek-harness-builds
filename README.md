@@ -10,8 +10,7 @@ publishes a release. The result is unsigned and not supported by DeepSeek.
 
 - 64-bit Linux (x86_64) with a running graphical desktop, X11 or Wayland.
 - FUSE 2 to mount AppImages. Most distributions include it; on Fedora install
-  `fuse-libs`, on Debian/Ubuntu `libfuse2` or `libfuse2t64`. Gear Lever is an
-  alternative way to manage and launch the file.
+  `fuse-libs`, on Debian/Ubuntu `libfuse2` or `libfuse2t64`.
 - Network access to your model provider and whatever credentials it requires.
 - At least 1 GB of free disk space; 8 GB of RAM is recommended for larger
   sessions.
