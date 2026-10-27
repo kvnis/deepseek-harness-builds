@@ -388,7 +388,7 @@ index d544ce6d..2f9f1122 100644
  
  function readManifest(path: string): PackageManifest {
 diff --git a/apps/desktop/scripts/electron-builder-config.mjs b/apps/desktop/scripts/electron-builder-config.mjs
-index 4b9cd27a..c37b882b 100644
+index 4b9cd27a..057b32dc 100644
 --- a/apps/desktop/scripts/electron-builder-config.mjs
 +++ b/apps/desktop/scripts/electron-builder-config.mjs
 @@ -65,7 +65,7 @@ export function createElectronBuilderConfig(
@@ -408,11 +408,12 @@ index 4b9cd27a..c37b882b 100644
      `**/node_modules/@deepseek-ai/libreoffice-kit-${resolvedPlatform}-${resolvedArch}/**/*`]
    const windowsSigner = packagesWindows && !unsigned
      ? createWindowsTokenSigner({
-@@ -246,6 +247,10 @@ export function createElectronBuilderConfig(
+@@ -246,6 +247,11 @@ export function createElectronBuilderConfig(
        target: ['nsis'],
      },
      linux: {
-+      icon: fileURLToPath(new URL('../resources/icon.png', import.meta.url)),
++      // Linux needs the rounded-corner artwork; resources/icon.png has square corners.
++      icon: fileURLToPath(new URL('../resources/icon-windows.png', import.meta.url)),
 +      executableName: 'deepseek-harness',
 +      // Match the installed .desktop filename to Electron's app_id/WM_CLASS.
 +      syncDesktopName: true,
@@ -869,7 +870,7 @@ index 948a88e6..8038b73f 100644
        if (!isDesktopHostEvent(message)) {
          this.fail(new Error('dsh desktop host sent an invalid IPC event'))
 diff --git a/apps/desktop/src/main.ts b/apps/desktop/src/main.ts
-index 2afdfd71..fa1237c0 100644
+index 2afdfd71..a5029ffa 100644
 --- a/apps/desktop/src/main.ts
 +++ b/apps/desktop/src/main.ts
 @@ -205,6 +205,11 @@ function platformLoginUrl(authorizeUrl: string): string {
@@ -903,8 +904,7 @@ index 2afdfd71..fa1237c0 100644
    app.setAboutPanelOptions({
      applicationName: 'DeepSeek Harness',
      applicationVersion: app.getVersion(),
-@@ -1000,9 +1006,15 @@
-         app.relaunch()
+@@ -971,6 +977,12 @@ async function main(): Promise<void> {
          quitWithoutConfirmation()
        } },
      ] : [],
@@ -917,8 +917,6 @@ index 2afdfd71..fa1237c0 100644
      { type: 'separator' },
      ...hideCommands,
      { role: 'quit', ...(darwin ? { label: currentDesktopLocale().messages.quitApplication }
-       : process.platform === 'win32' ? { label: currentDesktopLocale().messages.exitApplication } : {}) },
-   ]
 diff --git a/package.json b/package.json
 index d6d1d781..59b85b4f 100644
 --- a/package.json
