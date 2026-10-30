@@ -10,9 +10,12 @@ the automation.
 1. `resolve` reads the newest non-draft release from upstream and stops if this
    repository already has a release for that tag. `force=true` rebuilds and
    replaces it.
-2. `build` checks out the tag, applies `patches/0001-linux-appimage.patch`,
-   installs dependencies, and runs
-   `pnpm --filter @deepseek-ai/dsh-desktop run package:linux:x64:unsigned`.
+2. `build` checks out the tag and runs `scripts/apply-linux-patch.sh`, which
+   applies `patches/0001-linux-appimage.patch` strictly, falls back to
+   `patch --fuzz=2` when upstream only moved context lines, and then verifies
+   that every line the patch adds is present and no `.rej` or conflict markers
+   remain. It installs dependencies (three attempts, for registry flakiness) and
+   runs `pnpm --filter @deepseek-ai/dsh-desktop run package:linux:x64:unsigned`.
 3. `.upd_info` is checked for
    `gh-releases-zsync|kvnis|deepseek-harness-builds|latest-pre|….AppImage.zsync`.
 4. The AppImage is launched under Xvfb; the job fails unless it prints its

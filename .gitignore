@@ -1,3 +1,5 @@
 upstream/
 *.AppImage
 *.AppImage.sha256
+.tmpcache/
+.scratch/

@@ -87,7 +87,7 @@ jobs:
         run: git clone --depth 1 --branch "$TAG" https://github.com/deepseek-ai/deepseek-harness.git upstream
 
       - name: Apply Linux patch
-        run: git -C upstream apply --verbose "$GITHUB_WORKSPACE/patches/0001-linux-appimage.patch"
+        run: bash "$GITHUB_WORKSPACE/scripts/apply-linux-patch.sh" upstream
 
       - uses: actions/setup-node@v5
         with:
@@ -98,7 +98,13 @@ jobs:
 
       - name: Install dependencies
         working-directory: upstream
-        run: pnpm install --frozen-lockfile
+        run: |
+          for attempt in 1 2 3; do
+            if pnpm install --frozen-lockfile; then exit 0; fi
+            echo "pnpm install failed on attempt $attempt; retrying" >&2
+            sleep 20
+          done
+          exit 1
 
       - name: Build AppImage
         working-directory: upstream
