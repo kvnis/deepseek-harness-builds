@@ -64,6 +64,11 @@ Check it against a clean tree before pushing:
 git apply --check patches/0001-linux-appimage.patch
 ```
 
+Keep the `apps/desktop/package.json` hunks anchored on lines that do not change
+between releases. Upstream rewrites `"version"` in every tag, and a hunk that
+uses that line as context fails on the next release; the current hunk inserts
+`desktopName` after `"name"` instead, so the patch survives version bumps.
+
 ## Visibility
 
 Gear Lever's GitHub updater is unauthenticated. Update checks and downloads
