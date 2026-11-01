@@ -88,6 +88,9 @@ enabled.
   Updates come from Gear Lever or a new download.
 - **Prereleases.** Upstream currently ships prereleases, and these builds follow
   them.
+- **Lower version numbers are possible.** When upstream publishes a hotfix on an
+  older release line after a newer preview, the newest build can carry a lower
+  version number than the one you have, so the update looks like a downgrade.
 
 ## Disclaimer
 
