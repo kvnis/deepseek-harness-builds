@@ -60,6 +60,13 @@ def widen_declaration(path: Path) -> None:
         r"\1DesktopBuildTarget",
         f"{path.name}: desktopTargetBuildPaths target type",
     )
+    if "export function desktopTargetPlatform(target: DesktopAutoUpdateTarget" in text:
+        text = sub(
+            text,
+            r"(export function desktopTargetPlatform\(target: )DesktopAutoUpdateTarget",
+            r"\1DesktopBuildTarget",
+            f"{path.name}: desktopTargetPlatform target type",
+        )
     text = sub(text, re.escape(PLATFORM), WIDE_PLATFORM, f"{path.name}: platform union")
     path.write_text(text, encoding="utf-8")
 
