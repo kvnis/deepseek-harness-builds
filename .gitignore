@@ -3,3 +3,5 @@ upstream/
 *.AppImage.sha256
 .tmpcache/
 .scratch/
+.dsh/
+__pycache__/

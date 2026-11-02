@@ -130,6 +130,7 @@ if [[ $verify_only == true ]]; then
 fi
 
 if git -C "$upstream" apply --verbose "$patch_file"; then
+  python3 "$root/scripts/linux-target-fixups.py" "$upstream"
   verify
   report strict
   exit 0
@@ -147,6 +148,7 @@ dry_run=$(cd "$upstream" && patch -p1 --fuzz=2 --forward --batch --no-backup-if-
 printf '%s\n' "$dry_run"
 
 (cd "$upstream" && patch -p1 --fuzz=2 --forward --batch --no-backup-if-mismatch < "$patch_file")
+python3 "$root/scripts/linux-target-fixups.py" "$upstream"
 
 verify
 report "fuzz"

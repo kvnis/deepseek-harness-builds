@@ -287,4 +287,9 @@ jobs:
             if [ "$prerelease" = true ]; then args+=(--prerelease); fi
             gh release create "$TAG" "$app" "$app.sha256" "$app.zsync" "${args[@]}"
           fi
+          # Publishing another release can hand GitHub's implicit Latest marker to
+          # the newest tag. Re-assert the intended one so backfills never steal it.
+          if [ "$latest" = false ] && [ -n "${LATEST_TAG:-}" ] && gh release view "$LATEST_TAG" >/dev/null 2>&1; then
+            gh release edit "$LATEST_TAG" --latest
+          fi
           echo "Published $TAG (prerelease=$prerelease, latest=$latest)." >> "$GITHUB_STEP_SUMMARY"
