@@ -70,7 +70,7 @@ def widen_implementation(path: Path) -> None:
         return
     text = sub(
         text,
-        r"(const SUPPORTED_TARGETS = new Set\(\['mac-arm64', 'mac-x64', 'win-x64'\]\))",
+        r"(const SUPPORTED_TARGETS = new Set\(\[[^]]*)\]\)",
         r"\1, 'linux-x64'])",
         f"{path.name}: SUPPORTED_TARGETS",
     )
