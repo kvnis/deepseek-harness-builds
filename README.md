@@ -3,8 +3,10 @@
 Unofficial Linux x86_64 builds of [DeepSeek Harness](https://github.com/deepseek-ai/deepseek-harness).
 
 DeepSeek ships desktop apps for macOS and Windows but no Linux build. This
-repository rebuilds the upstream desktop app as an AppImage whenever upstream
-publishes a release. The result is unsigned and not supported by DeepSeek.
+repository rebuilds every upstream desktop release — alpha, beta, release
+candidate and final alike — as an AppImage, so a Linux build exists for each
+version upstream publishes. The result is unsigned and not supported by
+DeepSeek, and it does not update itself.
 
 ## Requirements
 
@@ -30,6 +32,25 @@ chmod +x deepseek-harness-*.AppImage
 
 If Chromium's sandbox refuses to start, run it with `--no-sandbox`.
 
+The release marked **Latest** is the newest release-candidate or final build.
+Alpha and beta builds are marked as pre-releases; open a specific release page
+to get that exact version.
+
+## Updating
+
+Nothing in the AppImage points at this repository, so it never checks for or
+installs a new version on its own. Updating is a download: get the AppImage of a
+newer release and replace the one you have, or open the new file in Gear Lever
+and integrate it.
+
+Your settings, sessions and installed plugins live in `~/.dsh`, outside the
+AppImage, so replacing the file leaves them untouched. Keep the old AppImage if
+you want to fall back without downloading it again.
+
+This repository checks `deepseek-ai/deepseek-harness` every six hours and builds
+each release published since it started tracking, so a new upstream version
+usually has a build within six hours of its release.
+
 ## Quitting and reloading
 
 Closing the window does **not** quit. The window hides, the page and its Host
@@ -48,29 +69,27 @@ running.
 If the menu has no reload item, the build predates it: quit and start the
 AppImage again instead.
 
-## Gear Lever
+## Optional: Gear Lever
 
-[Gear Lever](https://flathub.org/apps/it.mijorus.gearlever) is the recommended
-way to install and update the AppImage. It adds the app to your menu, extracts
-its icon and metadata, keeps older versions, and reads the update source
-embedded in the file together with the `.zsync` published beside it.
+[Gear Lever](https://flathub.org/apps/it.mijorus.gearlever) adds the AppImage to
+your menu, extracts its icon and metadata, and keeps older versions around.
+It is optional: `chmod +x` and running the file works too.
 
 ```sh
 flatpak install flathub it.mijorus.gearlever
 ```
 
-Open the AppImage in Gear Lever and choose **Integrate**. Gear Lever reads the
-update source embedded in the file, which points at this repository's releases,
-prereleases included.
+Open the AppImage in Gear Lever and choose **Integrate**.
 
-This repository checks `deepseek-ai/deepseek-harness` for new releases every six
-hours and publishes a build when it finds one, so a new upstream version reaches
-Gear Lever within about six hours of its release.
-
-To add the source by hand, choose **GitHub** and enter repository
-`kvnis/deepseek-harness-builds`, release file
+These builds carry no update source, so Gear Lever will not offer updates for
+them. To have it check this repository for you, add the source by hand: choose
+**GitHub**, enter repository `kvnis/deepseek-harness-builds` and release file
 `deepseek-harness-*-linux-x86_64-unsigned.AppImage`, with **Allow pre-releases**
-enabled.
+enabled. Gear Lever then reports a new release when you ask it to, and installs
+it only when you confirm.
+
+That source is optional. Adding it is the one way an integrated copy ever gets
+updated for you; leave it out and updates stay a manual download.
 
 ## What is included
 
@@ -83,14 +102,16 @@ enabled.
 - **Unofficial and unsigned.** The AppImage has no code signature, so your
   desktop may warn on first launch.
 - **Linux x86_64 only.**
-- **No in-app updates.** **Application → Check for Updates…** does not work:
-  these builds carry no update feed, so the check ends in a failure dialog.
-  Updates come from Gear Lever or a new download.
-- **Prereleases.** Upstream currently ships prereleases, and these builds follow
-  them.
+- **No updates of any kind.** **Application → Check for Updates…** fails, and
+  nothing in the file points at this repository, so the app never checks for or
+  installs a new version. Updating is a download; see [Updating](#updating).
+- **Prereleases.** Most upstream releases are alphas and release candidates, and
+  each one gets a build here. Alpha and beta builds are marked pre-release; the
+  newest release-candidate or final build is marked Latest.
 - **Lower version numbers are possible.** When upstream publishes a hotfix on an
   older release line after a newer preview, the newest build can carry a lower
-  version number than the one you have, so the update looks like a downgrade.
+  version number than the one you have. Nothing reorders them for you, so go by
+  the release date rather than the version.
 
 ## Disclaimer
 

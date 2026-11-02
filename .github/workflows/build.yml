@@ -6,7 +6,7 @@ on:
   workflow_dispatch:
     inputs:
       tag:
-        description: Upstream release tag; blank builds the newest release
+        description: Upstream release tag; blank builds every release this repository is missing
         required: false
         type: string
       force:
@@ -26,55 +26,135 @@ jobs:
   resolve:
     runs-on: ubuntu-24.04
     outputs:
-      tag: ${{ steps.release.outputs.tag }}
-      prerelease: ${{ steps.release.outputs.prerelease }}
-      build: ${{ steps.release.outputs.build }}
+      tags: ${{ steps.plan.outputs.tags }}
+      count: ${{ steps.plan.outputs.count }}
+      latest: ${{ steps.plan.outputs.latest }}
     steps:
-      - id: release
+      - id: plan
         env:
           GH_TOKEN: ${{ github.token }}
           GH_REPO: ${{ github.repository }}
           REQUESTED_TAG: ${{ inputs.tag }}
           FORCE: ${{ inputs.force }}
+          MAX_PER_RUN: '5'
         run: |
           set -euo pipefail
+          upstream_repo=deepseek-ai/deepseek-harness
+          tag_re='^dsh-v[0-9]+\.[0-9]+\.[0-9]+(-[A-Za-z0-9.]+)?$'
+          max_per_run=${MAX_PER_RUN:-5}
+
+          # Newest first, one "tag<TAB>created_at" per line. Sorted here rather
+          # than trusting the API order, because the anchor and the per-run cap
+          # both depend on it.
+          upstream=$(gh api --paginate "repos/$upstream_repo/releases?per_page=100" \
+            --jq '.[] | select(.draft == false) | "\(.tag_name)\t\(.created_at)"' \
+            | sort -t$'\t' -k2,2r)
+          published=$(gh release list --limit 100 --json tagName --jq '.[].tagName')
+
+          selected=()
           if [ -n "${REQUESTED_TAG:-}" ]; then
-            tag="$REQUESTED_TAG"
-            prerelease=$(gh api "repos/deepseek-ai/deepseek-harness/releases/tags/$tag" --jq '.prerelease' 2>/dev/null || echo false)
+            if [[ ! "$REQUESTED_TAG" =~ $tag_re ]]; then
+              echo "refusing unexpected tag: $REQUESTED_TAG" >&2
+              exit 1
+            fi
+            if [ "${FORCE:-false}" = true ]; then
+              selected=("$REQUESTED_TAG")
+            elif grep -qxF "$REQUESTED_TAG" <<<"$published"; then
+              echo "$REQUESTED_TAG already has a release; pass force to replace it." >> "$GITHUB_STEP_SUMMARY"
+            else
+              selected=("$REQUESTED_TAG")
+            fi
           else
-            record=$(gh api 'repos/deepseek-ai/deepseek-harness/releases?per_page=20' \
-              --jq '[.[] | select(.draft == false)][0] | "\(.tag_name)\t\(.prerelease)"')
-            tag=${record%%$'\t'*}
-            prerelease=${record##*$'\t'}
+            # Anchor: the oldest release this repository has built. Everything
+            # upstream published since then is fair game, so a gap near the top
+            # gets filled, while the history from before this project started
+            # building stays unbuilt. Dates, not versions: upstream publishes
+            # hotfixes on older lines, and those must still get a build.
+            anchor=''
+            if [ "${FORCE:-false}" != true ]; then
+              # Newest first, so the last match is the oldest release here.
+              while IFS=$'\t' read -r tag created; do
+                if [ -z "$tag" ]; then continue; fi
+                if grep -qxF "$tag" <<<"$published"; then anchor=$created; fi
+              done <<<"$upstream"
+            fi
+            while IFS=$'\t' read -r tag created; do
+              if [ -z "$tag" ]; then continue; fi
+              if [[ ! "$tag" =~ $tag_re ]]; then
+                echo "skipping unexpected upstream tag: $tag" >&2
+                continue
+              fi
+              if [ "${FORCE:-false}" = true ]; then
+                selected+=("$tag")
+                break
+              fi
+              if grep -qxF "$tag" <<<"$published"; then continue; fi
+              if [ -z "$anchor" ]; then
+                # Nothing built yet: start from the newest release, no backfill.
+                selected+=("$tag")
+                break
+              fi
+              if [[ ! "$created" > "$anchor" ]]; then continue; fi
+              selected+=("$tag")
+              if [ "${#selected[@]}" -ge "$max_per_run" ]; then break; fi
+            done <<<"$upstream"
           fi
-          if [[ ! "$tag" =~ ^dsh-v[0-9]+\.[0-9]+\.[0-9]+(-[A-Za-z0-9.]+)?$ ]]; then
-            echo "refusing unexpected upstream tag: ${tag:-<none>}" >&2
-            exit 1
+
+          # Selected newest first; the builds run oldest first so the newest
+          # build is created last and the release list reads in upstream order.
+          ordered=()
+          for ((i = ${#selected[@]} - 1; i >= 0; i--)); do
+            ordered+=("${selected[$i]}")
+          done
+
+          # GitHub's Latest marker is set explicitly instead of relying on
+          # creation order: a backfilled release is created today, so the
+          # automatic rule would hand it a marker that belongs to a newer build.
+          # The newest upstream release our own rule publishes as a normal
+          # release (rc or final) is the one that should carry it.
+          latest_tag='none'
+          while IFS=$'\t' read -r tag created; do
+            if [ -z "$tag" ]; then continue; fi
+            if [[ ! "$tag" =~ $tag_re ]]; then continue; fi
+            case "$tag" in
+              *-alpha*|*-beta*) continue ;;
+            esac
+            latest_tag=$tag
+            break
+          done <<<"$upstream"
+          echo "latest=$latest_tag" >> "$GITHUB_OUTPUT"
+
+          if [ "${#ordered[@]}" -eq 0 ]; then
+            echo 'tags=["none"]' >> "$GITHUB_OUTPUT"
+            echo 'count=0' >> "$GITHUB_OUTPUT"
+            if [ -z "${REQUESTED_TAG:-}" ]; then
+              echo 'Nothing to build: every upstream release since the oldest one here already has a build.' >> "$GITHUB_STEP_SUMMARY"
+            fi
+            exit 0
           fi
-          if [ "${FORCE:-false}" = "true" ]; then
-            build=true
-            echo "Force rebuild of $tag (prerelease=$prerelease)." >> "$GITHUB_STEP_SUMMARY"
-          elif gh release view "$tag" >/dev/null 2>&1; then
-            build=false
-            echo "$tag already has a release; nothing to do." >> "$GITHUB_STEP_SUMMARY"
-          else
-            build=true
-            echo "Building $tag (prerelease=$prerelease)." >> "$GITHUB_STEP_SUMMARY"
-          fi
+
           {
-            echo "tag=$tag"
-            echo "prerelease=$prerelease"
-            echo "build=$build"
+            echo "tags=$(printf '%s\n' "${ordered[@]}" | jq -R . | jq -sc .)"
+            echo "count=${#ordered[@]}"
           } >> "$GITHUB_OUTPUT"
+          {
+            echo "Queued ${#ordered[@]} build(s), oldest first:"
+            printf -- '- %s\n' "${ordered[@]}"
+          } >> "$GITHUB_STEP_SUMMARY"
 
   build:
     needs: resolve
-    if: needs.resolve.outputs.build == 'true'
+    if: needs.resolve.outputs.count != '0'
     runs-on: ubuntu-24.04
     timeout-minutes: 180
+    strategy:
+      fail-fast: false
+      max-parallel: 1
+      matrix:
+        tag: ${{ fromJSON(needs.resolve.outputs.tags) }}
     env:
-      TAG: ${{ needs.resolve.outputs.tag }}
-      PRERELEASE: ${{ needs.resolve.outputs.prerelease }}
+      TAG: ${{ matrix.tag }}
+      LATEST_TAG: ${{ needs.resolve.outputs.latest }}
     steps:
       - uses: actions/checkout@v5
 
@@ -106,20 +186,26 @@ jobs:
           done
           exit 1
 
+      # DSH_LINUX_APPIMAGE_UPDATE_INFO is deliberately not set: the build then
+      # leaves .upd_info empty, so the AppImage never updates itself.
       - name: Build AppImage
         working-directory: upstream
         env:
           CI: true
-          DSH_LINUX_APPIMAGE_UPDATE_INFO: 'gh-releases-zsync|kvnis|deepseek-harness-builds|latest-pre|deepseek-harness-*-linux-x86_64-unsigned.AppImage.zsync'
         run: pnpm --filter @deepseek-ai/dsh-desktop run package:linux:x64:unsigned
 
-      - name: Verify Gear Lever update source
+      - name: Verify no embedded update source
         working-directory: upstream
         run: |
           set -euo pipefail
           app=$(find apps/desktop/.desktop-build/targets/linux-x64/unsigned-artifacts -maxdepth 1 -name '*.AppImage' -print -quit)
           test -n "$app"
-          readelf --string-dump=.upd_info --wide "$app" | grep -F 'gh-releases-zsync|kvnis|deepseek-harness-builds|latest-pre|deepseek-harness-*-linux-x86_64-unsigned.AppImage.zsync'
+          info=$(readelf --string-dump=.upd_info --wide "$app" 2>/dev/null || true)
+          if grep -qF 'gh-releases-zsync' <<<"$info"; then
+            echo "$app embeds an update source; these builds must not self-update" >&2
+            exit 1
+          fi
+          echo "No embedded update source."
 
       - name: Smoke-test AppImage
         working-directory: upstream
@@ -127,7 +213,7 @@ jobs:
           set -euo pipefail
           app=$(find apps/desktop/.desktop-build/targets/linux-x64/unsigned-artifacts -maxdepth 1 -name '*.AppImage' -print -quit)
           test -n "$app"
-          command -v xvfb-run >/dev/null || sudo apt-get install -y xvfb
+          command -v xvfb-run >/dev/null || { sudo apt-get update -qq && sudo apt-get install -y xvfb; }
           xvfb-run -a timeout 180 "$app" --appimage-extract-and-run --no-sandbox > /tmp/appimage-smoke.log 2>&1 || true
           cat /tmp/appimage-smoke.log
           grep -q 'dsh web: http://127.0.0.1' /tmp/appimage-smoke.log
@@ -165,12 +251,26 @@ jobs:
           test -n "$app"
           version=${TAG#dsh-}
           commit=$(git -C upstream rev-parse --short HEAD)
+          # alpha and beta builds are pre-releases; an rc or final build is what
+          # GitHub shows as Latest, which is the download a newcomer wants.
+          case "$TAG" in
+            *-alpha*|*-beta*) prerelease=true ;;
+            *) prerelease=false ;;
+          esac
+          latest=false
+          if [ "$prerelease" = false ] && [ "$TAG" = "${LATEST_TAG:-}" ]; then
+            latest=true
+          fi
           cat > notes.md <<EOF
           Unofficial Linux x86_64 AppImage built from [deepseek-ai/deepseek-harness](https://github.com/deepseek-ai/deepseek-harness) tag \`$TAG\` (${commit}).
 
           - Unsigned local build; no code signing or notarization.
-          - No in-app updater; Gear Lever reads the embedded update source for this repository.
-          - A \`.zsync\` file is attached for AppImageUpdate and Gear Lever.
+          - **No automatic updates.** Nothing in the AppImage points at this
+            repository, so it never checks for or installs a new version by
+            itself. Install a newer release over it by hand; plugins and
+            settings stay in your profile.
+          - The attached \`.zsync\` is optional: it only helps people who point
+            AppImageUpdate or Gear Lever at this release on purpose.
           - The AppImage was launched under Xvfb and had to serve its local \`dsh web\` URL before this release was created.
           - SHA-256 is attached as \`$(basename "$app").sha256\`.
 
@@ -179,9 +279,12 @@ jobs:
           title="DeepSeek Harness $version — Linux x86_64"
           if gh release view "$TAG" >/dev/null 2>&1; then
             gh release upload "$TAG" "$app" "$app.sha256" "$app.zsync" --clobber
-            gh release edit "$TAG" --title "$title" --notes-file notes.md
+            gh release edit "$TAG" --title "$title" --notes-file notes.md \
+              --prerelease="$prerelease" --latest="$latest"
           else
             args=(--title "$title" --notes-file notes.md --target "$(git rev-parse HEAD)")
-            if [ "$PRERELEASE" = "true" ]; then args+=(--prerelease); fi
+            args+=(--latest="$latest")
+            if [ "$prerelease" = true ]; then args+=(--prerelease); fi
             gh release create "$TAG" "$app" "$app.sha256" "$app.zsync" "${args[@]}"
           fi
+          echo "Published $TAG (prerelease=$prerelease, latest=$latest)." >> "$GITHUB_STEP_SUMMARY"
