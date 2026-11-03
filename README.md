@@ -47,9 +47,10 @@ Your settings, sessions and installed plugins live in `~/.dsh`, outside the
 AppImage, so replacing the file leaves them untouched. Keep the old AppImage if
 you want to fall back without downloading it again.
 
-This repository checks `deepseek-ai/deepseek-harness` every six hours and builds
+This repository checks `deepseek-ai/deepseek-harness` every 15 minutes and builds
 each release published since it started tracking, so a new upstream version
-usually has a build within six hours of its release.
+usually has a build within half an hour of its release. GitHub's scheduler is
+best-effort and can delay a check, so allow up to an hour.
 
 ## Quitting and reloading
 

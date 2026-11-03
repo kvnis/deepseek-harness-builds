@@ -2,7 +2,10 @@ name: Build DeepSeek Harness artifacts
 
 on:
   schedule:
-    - cron: '17 */6 * * *'
+    # GitHub's scheduler is best-effort: it delays ticks by hours and drops them
+    # outright, so a sparse poll misses releases for a day. Poll often instead.
+    # A tick with nothing to build costs one ~10s resolve job and nothing else.
+    - cron: '*/15 * * * *'
   workflow_dispatch:
     inputs:
       tag:
@@ -43,13 +46,20 @@ jobs:
           tag_re='^dsh-v[0-9]+\.[0-9]+\.[0-9]+(-[A-Za-z0-9.]+)?$'
           max_per_run=${MAX_PER_RUN:-5}
 
-          # Newest first, one "tag<TAB>created_at" per line. Sorted here rather
+          # Newest first, one "tag<TAB>published_at" per line. Sorted here rather
           # than trusting the API order, because the anchor and the per-run cap
-          # both depend on it.
+          # both depend on it. Publication date, not creation date: upstream
+          # drafts an alpha and publishes it hours later, and a release drafted
+          # before the anchor but published after it must still get built.
           upstream=$(gh api --paginate "repos/$upstream_repo/releases?per_page=100" \
-            --jq '.[] | select(.draft == false) | "\(.tag_name)\t\(.created_at)"' \
+            --jq '.[] | select(.draft == false) | "\(.tag_name)\t\(.published_at // .created_at)"' \
             | sort -t$'\t' -k2,2r)
-          published=$(gh release list --limit 100 --json tagName --jq '.[].tagName')
+          # A release here counts as built only once its AppImage is attached.
+          # A release created without assets would otherwise never be retried.
+          # The REST API is used instead of `gh release list --json assets`,
+          # which older gh releases on the runner image reject.
+          published=$(gh api --paginate "repos/{owner}/{repo}/releases?per_page=100" \
+            --jq '.[] | select(.draft == false) | select([.assets[].name] | any(endswith(".AppImage"))) | .tag_name')
 
           selected=()
           if [ -n "${REQUESTED_TAG:-}" ]; then
@@ -65,7 +75,7 @@ jobs:
               selected=("$REQUESTED_TAG")
             fi
           else
-            # Anchor: the oldest release this repository has built. Everything
+            # Anchor: when the oldest release built here was published. Everything
             # upstream published since then is fair game, so a gap near the top
             # gets filled, while the history from before this project started
             # building stays unbuilt. Dates, not versions: upstream publishes
@@ -73,12 +83,12 @@ jobs:
             anchor=''
             if [ "${FORCE:-false}" != true ]; then
               # Newest first, so the last match is the oldest release here.
-              while IFS=$'\t' read -r tag created; do
+              while IFS=$'\t' read -r tag pubdate; do
                 if [ -z "$tag" ]; then continue; fi
-                if grep -qxF "$tag" <<<"$published"; then anchor=$created; fi
+                if grep -qxF "$tag" <<<"$published"; then anchor=$pubdate; fi
               done <<<"$upstream"
             fi
-            while IFS=$'\t' read -r tag created; do
+            while IFS=$'\t' read -r tag pubdate; do
               if [ -z "$tag" ]; then continue; fi
               if [[ ! "$tag" =~ $tag_re ]]; then
                 echo "skipping unexpected upstream tag: $tag" >&2
@@ -94,7 +104,7 @@ jobs:
                 selected+=("$tag")
                 break
               fi
-              if [[ ! "$created" > "$anchor" ]]; then continue; fi
+              if [[ ! "$pubdate" > "$anchor" ]]; then continue; fi
               selected+=("$tag")
               if [ "${#selected[@]}" -ge "$max_per_run" ]; then break; fi
             done <<<"$upstream"
@@ -113,7 +123,7 @@ jobs:
           # The newest upstream release our own rule publishes as a normal
           # release (rc or final) is the one that should carry it.
           latest_tag='none'
-          while IFS=$'\t' read -r tag created; do
+          while IFS=$'\t' read -r tag pubdate; do
             if [ -z "$tag" ]; then continue; fi
             if [[ ! "$tag" =~ $tag_re ]]; then continue; fi
             case "$tag" in

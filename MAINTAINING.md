@@ -5,16 +5,24 @@ the automation.
 
 ## Automation
 
-`.github/workflows/build.yml` runs every six hours and on `workflow_dispatch`.
+`.github/workflows/build.yml` runs every 15 minutes and on `workflow_dispatch`.
+The interval is short because GitHub's scheduler is best-effort: it has delayed
+ticks by six hours and dropped them outright, which with a six-hourly cron meant
+a published release could sit unbuilt for a day. A tick with nothing to build
+costs one ~10s `resolve` job, so frequent polling is cheap.
 
 1. `resolve` lists upstream's non-draft releases newest first and this
    repository's own releases. The oldest upstream release that already has a
-   release here is the anchor: every upstream release created after it that has
+   release here is the anchor: every upstream release published after it that has
    no release here is queued, at most five per run, newest first, and the jobs
    then run oldest first. Anything from before the anchor is history and is
    never built, so a fresh start cannot backfill the whole archive. The rule
    uses dates rather than versions on purpose: upstream publishes hotfixes on
-   older lines, and those must still get a build.
+   older lines, and those must still get a build. The dates are publication
+   dates, not creation dates, because upstream drafts a release and publishes it
+   later; a release drafted before the anchor but published after it would
+   otherwise be skipped forever. A release here counts as built only when its
+   AppImage is attached, so a release left without assets is rebuilt.
 2. `build` runs once per queued tag, one at a time (`max-parallel: 1`), so the
    newest release is created last and GitHub's Latest pointer lands on it. Each
    job checks out the tag and runs `scripts/apply-linux-patch.sh`, which applies
