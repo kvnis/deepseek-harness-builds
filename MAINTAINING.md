@@ -86,16 +86,34 @@ Upstream is pre-stable. If "Apply Linux patch" fails on a new tag:
 ```sh
 git clone --depth 1 --branch <tag> https://github.com/deepseek-ai/deepseek-harness.git work
 cd work
-git apply --3way /path/to/patches/0001-linux-appimage.patch
-# resolve conflicts, then
+patch -p1 --fuzz=2 --forward --batch --no-backup-if-mismatch \
+  < /path/to/patches/0001-linux-appimage.patch
+# apply the hunks it reports FAILED by hand, delete the .rej files, then
 git add -A
 git diff --cached --binary > /path/to/patches/0001-linux-appimage.patch
 ```
 
-Check it against a clean tree before pushing:
+Not `git apply --3way`: a `--depth 1` clone has no blobs from the previous
+release, so the preimages the patch names do not exist and the merge has nothing
+to work from. Regenerate *before* running `scripts/linux-target-fixups.py`; its
+rewrites belong to that script, and folding them into the patch would put fragile
+context back in the file the script exists to keep stable.
+
+Check it against a clean tree before pushing. Strict apply must pass — if it only
+passes with fuzz, the patch is not ready:
 
 ```sh
+git reset --hard && git clean -fd
 git apply --check patches/0001-linux-appimage.patch
+```
+
+A regenerated patch should change only hunk headers and context lines. Compare
+added and removed lines per file against the previous patch to confirm nothing
+else moved:
+
+```sh
+git apply /path/to/patches/0001-linux-appimage.patch   # in a clean clone of the new tag
+scripts/apply-linux-patch.sh --verify . /path/to/patches/0001-linux-appimage.patch
 ```
 
 Keep the `apps/desktop/package.json` hunks anchored on lines that do not change

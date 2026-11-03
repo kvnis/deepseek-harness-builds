@@ -1,13 +1,15 @@
 diff --git a/apps/desktop/package.json b/apps/desktop/package.json
-index 61a73769..07e60313 100644
+index 5d4f00eb..e48e832f 100644
 --- a/apps/desktop/package.json
 +++ b/apps/desktop/package.json
-@@ -1,3 +1,4 @@
+@@ -1,5 +1,6 @@
  {
    "name": "@deepseek-ai/dsh-desktop",
 +  "desktopName": "deepseek-harness.desktop",
    "description": "Electron desktop shell for a bundled dsh runtime and external plugins",
-@@ -35,6 +36,8 @@
+   "version": "0.2.2-alpha.3",
+   "private": true,
+@@ -38,6 +39,8 @@
      "package:win:x64": "tsx scripts/package-target.ts win-x64",
      "package:win:x64:unsigned": "tsx scripts/package-target.ts win-x64 --unsigned",
      "package:win:x64:dir": "tsx scripts/package-target.ts win-x64 --dir",
@@ -141,7 +143,7 @@ index 68291ca3..1a25564e 100644
    /** Date segment to number within; defaults to today where the build runs. */
    readonly date?: string
 diff --git a/apps/desktop/scripts/desktop-package-environment.d.mts b/apps/desktop/scripts/desktop-package-environment.d.mts
-index 995c117d..9ce54ffd 100644
+index ec9da721..e8c9c5c3 100644
 --- a/apps/desktop/scripts/desktop-package-environment.d.mts
 +++ b/apps/desktop/scripts/desktop-package-environment.d.mts
 @@ -7,6 +7,13 @@
@@ -158,7 +160,7 @@ index 995c117d..9ce54ffd 100644
  /**
   * Read a machine preset when selected, otherwise the target's required dotenv; no ambient release fallback.
   * PACKAGE_TEST_RELEASE_ID overrides the test preset only; blank retains its configured ID.
-@@ -17,7 +24,7 @@ export function localMacOSPackageEnvironment(environment?: NodeJS.ProcessEnv): N
+@@ -20,7 +27,7 @@ export function localMacOSPackageEnvironment(environment?: NodeJS.ProcessEnv): N
   * @returns Isolated environment with file-owned release settings.
   */
  export function loadDesktopPackageEnvironment(
@@ -167,7 +169,7 @@ index 995c117d..9ce54ffd 100644
    environment?: NodeJS.ProcessEnv,
    appRoot?: string,
    options?: { unsigned?: boolean, prepareOnly?: boolean },
-@@ -32,6 +39,6 @@ export function loadDesktopPackageEnvironment(
+@@ -35,6 +42,6 @@ export function loadDesktopPackageEnvironment(
   */
  export function validateDesktopPackageEnvironment(
    environment: NodeJS.ProcessEnv,
@@ -220,10 +222,10 @@ index d544ce6d..2f9f1122 100644
  
  function readManifest(path: string): PackageManifest {
 diff --git a/apps/desktop/scripts/electron-builder-config.mjs b/apps/desktop/scripts/electron-builder-config.mjs
-index 4b9cd27a..057b32dc 100644
+index cf0c19e8..10cce818 100644
 --- a/apps/desktop/scripts/electron-builder-config.mjs
 +++ b/apps/desktop/scripts/electron-builder-config.mjs
-@@ -65,7 +65,7 @@ export function createElectronBuilderConfig(
+@@ -66,7 +66,7 @@ export function createElectronBuilderConfig(
    if (skipNotarization && (unsigned || resolvedPlatform !== 'darwin')) throw new Error('Skipping notarization requires a signed macOS build')
    const packagesMacOS = targetPlatform === 'darwin' || (targetPlatform === undefined && hostPlatform === 'darwin')
    const packagesWindows = resolvedPlatform === 'win32'
@@ -232,7 +234,7 @@ index 4b9cd27a..057b32dc 100644
    if (resolvedPlatform === 'win32') installWindowsDirectoryInstaller()
    const macOSSigning = packagesMacOS && !unsigned ? resolveMacOSSigningEnvironment(env) : undefined
    if (packagesMacOS && !unsigned && !skipNotarization) resolveMacOSNotarizationEnvironment(env)
-@@ -75,6 +75,7 @@ export function createElectronBuilderConfig(
+@@ -76,6 +76,7 @@ export function createElectronBuilderConfig(
    let dshDestination
    let windowsCode = []
    const unpack = ['**/*.{node,dylib,dll,so,exe}', '**/*.so.*', '**/spawn-helper', '**/@vscode/ripgrep-*/bin/rg',
@@ -240,7 +242,7 @@ index 4b9cd27a..057b32dc 100644
      `**/node_modules/@deepseek-ai/libreoffice-kit-${resolvedPlatform}-${resolvedArch}/**/*`]
    const windowsSigner = packagesWindows && !unsigned
      ? createWindowsTokenSigner({
-@@ -246,6 +247,11 @@ export function createElectronBuilderConfig(
+@@ -253,6 +254,11 @@ export function createElectronBuilderConfig(
        target: ['nsis'],
      },
      linux: {
@@ -344,7 +346,7 @@ index 00000000..8018c009
 +  createRequire(join(options.root, 'package.json')).resolve('@img/sharp-wasm32/sharp.node')
 +}
 diff --git a/apps/desktop/scripts/package-target.ts b/apps/desktop/scripts/package-target.ts
-index be2f577e..13f7f35b 100644
+index b6bc6efb..fc2a3fbf 100644
 --- a/apps/desktop/scripts/package-target.ts
 +++ b/apps/desktop/scripts/package-target.ts
 @@ -1,16 +1,17 @@
@@ -368,7 +370,7 @@ index be2f577e..13f7f35b 100644
  import { createPackagingRun, recordPackagingEvent } from './packaging-run.mjs'
  import { withWindowsSigningStage } from './windows-signing-stage.mjs'
  import { prepareWindowsSignatureCacheDirectory, resolveWindowsSignatureCacheDirectory } from './windows-signature-cache-directory.mjs'
-@@ -46,19 +47,22 @@ const DESKTOP_UPLOAD_CREDENTIAL_ENV_NAMES = new Set([
+@@ -47,19 +48,22 @@ const DESKTOP_UPLOAD_CREDENTIAL_ENV_NAMES = new Set([
  /** `--build-version` value that numbers a build after the ones already taken. */
  const AUTOMATIC_BUILD_VERSION = 'auto'
  
@@ -396,7 +398,7 @@ index be2f577e..13f7f35b 100644
    'mac-arm64': {
      name: 'mac-arm64',
      platform: 'darwin',
-@@ -80,6 +84,13 @@ const TARGETS: Record<DesktopPackageTargetName, DesktopPackageTarget> = {
+@@ -81,6 +85,13 @@ const TARGETS: Record<DesktopPackageTargetName, DesktopPackageTarget> = {
      builderPlatform: '--win',
      builderArch: '--x64',
    },
@@ -410,7 +412,7 @@ index be2f577e..13f7f35b 100644
  }
  
  /**
-@@ -121,7 +132,7 @@ export function withoutDesktopUploadCredentials(environment: NodeJS.ProcessEnv):
+@@ -122,7 +133,7 @@ export function withoutDesktopUploadCredentials(environment: NodeJS.ProcessEnv):
      .filter(([name]) => !DESKTOP_UPLOAD_CREDENTIAL_ENV_NAMES.has(name)))
  }
  
@@ -419,7 +421,7 @@ index be2f577e..13f7f35b 100644
    return Object.hasOwn(TARGETS, value)
  }
  
-@@ -138,6 +149,7 @@ function writeReleaseRecord(
+@@ -139,6 +150,7 @@ function writeReleaseRecord(
    environment: NodeJS.ProcessEnv,
    artifactsRoot: string,
  ): void {
@@ -427,7 +429,7 @@ index be2f577e..13f7f35b 100644
    const desktopVersion = packageVersion(join(APP_ROOT, 'package.json'), 'desktop package')
    const dshVersion = packageVersion(join(REPOSITORY_ROOT, 'package.json'), 'dsh package')
    if (desktopVersion !== dshVersion) {
-@@ -183,6 +195,9 @@ export function resolveDesktopPackageTarget(
+@@ -184,6 +196,9 @@ export function resolveDesktopPackageTarget(
    if (target.platform === 'darwin' && hostPlatform !== 'darwin') {
      throw new Error(`desktop package: ${name} requires a macOS build host`)
    }
@@ -437,7 +439,7 @@ index be2f577e..13f7f35b 100644
    if (name === 'mac-arm64' && hostArch !== 'arm64') {
      throw new Error('desktop package: mac-arm64 requires an Apple Silicon build host')
    }
-@@ -203,7 +218,7 @@ interface DesktopPackageInvocation {
+@@ -204,7 +219,7 @@ interface DesktopPackageInvocation {
    readonly requestedBuildVersion: string | undefined
  }
  
@@ -446,7 +448,7 @@ index be2f577e..13f7f35b 100644
    const name = `${platform === 'darwin' ? 'mac' : platform === 'win32' ? 'win' : platform}-${arch}`
    if (!isTargetName(name)) throw new Error(`desktop package: unsupported build host ${platform}-${arch}`)
    return name
-@@ -345,9 +360,11 @@ async function main(): Promise<void> {
+@@ -346,9 +361,11 @@ async function main(): Promise<void> {
    }
    const environment = target.platform === 'darwin' && invocation.unsigned
      ? localMacOSPackageEnvironment()
@@ -461,7 +463,7 @@ index be2f577e..13f7f35b 100644
    const productVersion = packageVersion(join(APP_ROOT, 'package.json'), 'desktop package')
    // Release settings come from the selected configuration files, so the version this run publishes is an
    // argument; the environment variable below only carries it to the child processes that build.
-@@ -386,7 +403,8 @@ async function main(): Promise<void> {
+@@ -387,7 +404,8 @@ async function main(): Promise<void> {
          ? packageTarget(invocation, environment, run)
          : withMacOSSigningKeychain(environment, signingEnvironment => packageTarget(invocation, signingEnvironment, run)), secrets)
      } else {
@@ -471,7 +473,7 @@ index be2f577e..13f7f35b 100644
      }
      success = true
    } catch (error) {
-@@ -404,6 +422,13 @@ async function main(): Promise<void> {
+@@ -405,6 +423,13 @@ async function main(): Promise<void> {
      const filename = `deepseek-harness-${buildVersion}-mac-${target.arch}${output.suffix}.dmg`
      console.log(`DMG: ${join(output.directory, filename)}`)
    }
@@ -485,7 +487,7 @@ index be2f577e..13f7f35b 100644
  }
  
  /**
-@@ -526,6 +553,16 @@ export async function packageTarget(
+@@ -564,6 +589,16 @@ export async function packageTarget(
    if (!invocation.directory && !invocation.unsigned && !invocation.skipNotarization) {
      writeReleaseRecord(target, electronBuilderEnv, buildPaths.artifacts)
    }
@@ -520,10 +522,10 @@ index d2b9e142..ad60996b 100644
 +  if (platform !== 'win32') chmodSync(command, 0o755)
  }
 diff --git a/apps/desktop/scripts/prepare-dsh.ts b/apps/desktop/scripts/prepare-dsh.ts
-index 9de39d3f..069dbe5a 100644
+index a0698880..4c82f8fa 100644
 --- a/apps/desktop/scripts/prepare-dsh.ts
 +++ b/apps/desktop/scripts/prepare-dsh.ts
-@@ -32,6 +32,8 @@ import {
+@@ -33,6 +33,8 @@ import {
    signMacOSRuntime,
  } from './macos-runtime.ts'
  import { desktopTargetPlatform, resolveDesktopBuildTarget, resolveDesktopTargetBuildPaths } from './desktop-build-paths.mjs'
@@ -532,7 +534,7 @@ index 9de39d3f..069dbe5a 100644
  import { desktopRuntimeFileExclusion } from './runtime-file-policy.ts'
  import { selectOfficeEngine } from '../../../scripts/libreoffice-packages.mjs'
  
-@@ -43,7 +45,7 @@ const STORE_ROOT = join(BUILD_ROOT, 'store')
+@@ -44,7 +46,7 @@ const STORE_ROOT = BUILD_PATHS.pnpmStore
  const RUNTIME_ROOT = BUILD_PATHS.runtime
  const PNPM_BUILD_STATE = BUILD_PATHS.dshPnpm
  const PACKAGE_SET_ROOT = BUILD_PATHS.packageSet
@@ -541,7 +543,7 @@ index 9de39d3f..069dbe5a 100644
  const PNPM = join(RUNTIME_ROOT, 'primary-runtime', 'dependencies', 'pnpm', 'bin', 'pnpm.mjs')
  
  function manifestVersion(path: string, subject: string): string {
-@@ -68,7 +70,7 @@ function desktopRelease(): DesktopRelease {
+@@ -69,7 +71,7 @@ function desktopRelease(): DesktopRelease {
    })
  }
  
@@ -550,7 +552,7 @@ index 9de39d3f..069dbe5a 100644
    return new Promise((resolvePromise, reject) => {
      const [command, ...commandArgs] = args
      if (command === undefined) throw new Error('desktop runtime: pnpm command is required')
-@@ -87,7 +89,7 @@ function runPnpm(args: readonly string[]): Promise<void> {
+@@ -90,7 +92,7 @@ function runPnpm(args: readonly string[]): Promise<void> {
        command,
        ...commandArgs,
      ], {
@@ -559,7 +561,7 @@ index 9de39d3f..069dbe5a 100644
        env: {
          ...Object.fromEntries(Object.entries(process.env).filter(([name]) => (
            name !== 'NODE_OPTIONS' && name !== 'NODE_PATH' && !/^DSH_DESKTOP_/u.test(name) && !/^(?:npm|pnpm|corepack)_/iu.test(name)
-@@ -157,6 +159,16 @@ async function main(): Promise<void> {
+@@ -163,6 +165,16 @@ async function main(): Promise<void> {
      if (!existsSync(join(DSH_OUTPUT_ROOT, 'node_modules', '@deepseek-ai', `libreoffice-kit-${officeEngine}`, 'prebuilds.json'))) {
        throw new Error(`desktop runtime: missing required LibreOffice engine ${officeEngine}`)
      }
@@ -577,7 +579,7 @@ index 9de39d3f..069dbe5a 100644
        const cacheDirectory = resolveMacOSSignatureCacheDirectory(process.env, BUILD_PATHS.root)
        await packagingStep(process.env.DSH_DESKTOP_PACKAGING_RUN_DIR, 'sign:dsh-native', () => signMacOSRuntime(DSH_OUTPUT_ROOT, resolveDesktopAppId(process.env), resolveMacOSSigningEnvironment(process.env), target.arch, cacheDirectory))
 diff --git a/apps/desktop/scripts/prepare-runtime.ts b/apps/desktop/scripts/prepare-runtime.ts
-index ba92fef0..abae5d50 100644
+index 4e338532..c92045ae 100644
 --- a/apps/desktop/scripts/prepare-runtime.ts
 +++ b/apps/desktop/scripts/prepare-runtime.ts
 @@ -19,6 +19,13 @@ const RUNTIME_ROOT = BUILD_PATHS.runtime
@@ -654,10 +656,10 @@ index e6afd574..4aa028e6 100644
    try {
      const archive = runtimeArchivePath(root)
 diff --git a/apps/desktop/src/host-process.ts b/apps/desktop/src/host-process.ts
-index 948a88e6..8038b73f 100644
+index 338f93bd..38d75b09 100644
 --- a/apps/desktop/src/host-process.ts
 +++ b/apps/desktop/src/host-process.ts
-@@ -134,6 +134,21 @@ export class DesktopHostFatalError extends Error {
+@@ -154,6 +154,21 @@ export class DesktopHostFatalError extends Error {
    get diagnostic(): string | undefined { return this.#diagnostic }
  }
  
@@ -678,21 +680,21 @@ index 948a88e6..8038b73f 100644
 +
  /** One Web backend running under the Electron executable in Node mode. */
  export class DesktopHostProcess {
-   private child: ChildProcess | undefined
-@@ -202,7 +217,7 @@ export class DesktopHostProcess {
+   private runId: PluginOperationRunId | undefined
+@@ -225,7 +240,7 @@ export class DesktopHostProcess {
      this.child = child
      child.stderr?.setEncoding('utf8')
      child.stderr?.on('data', (chunk: string) => { this.stderr = (this.stderr + chunk).slice(-MAX_HOST_DIAGNOSTIC_CHARS) })
 -    child.stdout?.pipe(process.stdout)
 +    forwardHostOutput(child.stdout)
      child.on('message', (message: unknown) => {
-       if (!isDesktopHostEvent(message)) {
-         this.fail(new Error('dsh desktop host sent an invalid IPC event'))
+       if (typeof message === 'object' && message !== null && 'type' in message && message.type === 'plugin-operation') {
+         const record = 'record' in message ? parsePluginOperationRecord(message.record) : undefined
 diff --git a/apps/desktop/src/main.ts b/apps/desktop/src/main.ts
-index 2afdfd71..a5029ffa 100644
+index d8d0e30c..28fb3982 100644
 --- a/apps/desktop/src/main.ts
 +++ b/apps/desktop/src/main.ts
-@@ -205,6 +205,11 @@ function platformLoginUrl(authorizeUrl: string): string {
+@@ -256,6 +256,11 @@ function platformLoginUrl(authorizeUrl: string): string {
    return url.href
  }
  
@@ -704,7 +706,7 @@ index 2afdfd71..a5029ffa 100644
  function createWindow(preload: string, show = false, primary = false): BrowserWindow {
    const window = new BrowserWindow({
      width: 1280,
-@@ -212,6 +217,8 @@ function createWindow(preload: string, show = false, primary = false): BrowserWi
+@@ -263,6 +268,8 @@ function createWindow(preload: string, show = false, primary = false): BrowserWi
      minWidth: 520,
      minHeight: 600,
      show,
@@ -713,7 +715,7 @@ index 2afdfd71..a5029ffa 100644
      ...(process.platform === 'win32' && primary ? {
        titleBarStyle: 'hidden' as const,
        titleBarOverlay: { height: WINDOWS_TITLEBAR_HEIGHT, color: chromeFallbackFill(),
-@@ -929,8 +936,7 @@ async function main(): Promise<void> {
+@@ -1027,8 +1034,7 @@ async function main(): Promise<void> {
      updates.dispose()
    })
  
@@ -723,7 +725,7 @@ index 2afdfd71..a5029ffa 100644
    app.setAboutPanelOptions({
      applicationName: 'DeepSeek Harness',
      applicationVersion: app.getVersion(),
-@@ -971,6 +977,12 @@ async function main(): Promise<void> {
+@@ -1069,6 +1075,12 @@ async function main(): Promise<void> {
          quitWithoutConfirmation()
        } },
      ] : [],
@@ -733,11 +735,11 @@ index 2afdfd71..a5029ffa 100644
 +    ...process.platform === 'linux'
 +      ? [{ label: currentDesktopLocale().messages.reloadPageMenu, role: 'reload' as const }]
 +      : [],
+     { role: 'toggleDevTools', label: currentDesktopLocale().messages.toggleDevToolsMenu },
      { type: 'separator' },
      ...hideCommands,
-     { role: 'quit', ...(darwin ? { label: currentDesktopLocale().messages.quitApplication }
 diff --git a/package.json b/package.json
-index d6d1d781..59b85b4f 100644
+index dcf0f5a6..ff01a93f 100644
 --- a/package.json
 +++ b/package.json
 @@ -42,6 +42,7 @@
