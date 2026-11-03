@@ -321,7 +321,11 @@ jobs:
           fi
           # Publishing another release can hand GitHub's implicit Latest marker to
           # the newest tag. Re-assert the intended one so backfills never steal it.
-          if [ "$latest" = false ] && [ -n "${LATEST_TAG:-}" ] && gh release view "$LATEST_TAG" >/dev/null 2>&1; then
+          # GitHub refuses the marker on a prerelease (HTTP 422), and the intended
+          # tag is a prerelease whenever no rc or final release exists yet, so the
+          # re-assert only runs when that release is a normal one.
+          if [ "$latest" = false ] && [ -n "${LATEST_TAG:-}" ] \
+            && [ "$(gh release view "$LATEST_TAG" --json isPrerelease --jq '.isPrerelease' 2>/dev/null)" = false ]; then
             gh release edit "$LATEST_TAG" --latest
           fi
           echo "Published $TAG (prerelease=$prerelease, latest=$latest)." >> "$GITHUB_STEP_SUMMARY"
