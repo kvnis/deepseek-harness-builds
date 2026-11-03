@@ -1,0 +1,125 @@
+diff --git a/apps/desktop/src/auth-cookie-hygiene.ts b/apps/desktop/src/auth-cookie-hygiene.ts
+new file mode 100644
+index 00000000..ae95f594
+--- /dev/null
++++ b/apps/desktop/src/auth-cookie-hygiene.ts
+@@ -0,0 +1,49 @@
++/** Drop the Host browser-session cookies that earlier launches left in the Desktop profile. */
++
++/** Cookie fields this module reads; Electron's `Cookie` carries them all. */
++export interface DesktopHostCookie {
++  domain?: string
++  name: string
++  path?: string
++  secure?: boolean
++}
++
++/** Minimal cookie-jar surface; Electron's `Cookies` satisfies it. */
++export interface DesktopHostCookieJar {
++  /** @param filter - selector fields; an empty object lists the whole jar. */
++  get(filter: { url?: string }): Promise<readonly DesktopHostCookie[]>
++  /** @param url - cookie origin. @param name - cookie name. */
++  remove(url: string, name: string): Promise<void>
++}
++
++/** Name prefix the Host mints its loopback session cookie under. */
++const HOST_COOKIE_PREFIX = 'dsh-auth-'
++
++/**
++ * Forget every Host authentication cookie before this launch authenticates its own.
++ *
++ * A Host mints one cookie per loopback authority and the port changes on every
++ * launch, so a cookie left by an earlier launch can never validate again. Nothing
++ * overwrites them either: Chromium scopes cookies by host and ignores the port,
++ * so the cookies of every launch pile up in the same `127.0.0.1` jar and the
++ * `Cookie` header eventually outgrows the Host's 16 KiB header limit, after which
++ * every start fails with `431 Request Header Fields Too Large` before the Host can
++ * answer and the shell reports `Desktop Host authentication failed`.
++ *
++ * The single-instance lock keeps this launch the profile's only owner, so nothing
++ * running can still depend on a Host cookie when this runs.
++ * @param jar - Desktop session cookie jar.
++ */
++export async function clearStaleHostCookies(jar: DesktopHostCookieJar): Promise<void> {
++  for (const cookie of await jar.get({})) {
++    if (!cookie.name.startsWith(HOST_COOKIE_PREFIX)) continue
++    const domain = cookie.domain ?? ''
++    /* Electron addresses a cookie by URL, so a cookie without a domain cannot be named. */
++    if (domain === '') continue
++    const host = domain.startsWith('.') ? domain.slice(1) : domain
++    const origin = `${cookie.secure === true ? 'https' : 'http'}://${host}${cookie.path ?? '/'}`
++    try {
++      await jar.remove(origin, cookie.name)
++    } catch (_error) { /* An unremovable cookie must not block the launch; the next start retries it. */ }
++  }
++}
+diff --git a/apps/desktop/src/main.ts b/apps/desktop/src/main.ts
+index 28fb3982..b7a0759d 100644
+--- a/apps/desktop/src/main.ts
++++ b/apps/desktop/src/main.ts
+@@ -23,6 +23,7 @@ import {
+   type IpcMainInvokeEvent,
+   type MenuItemConstructorOptions,
+ } from 'electron'
++import { clearStaleHostCookies } from './auth-cookie-hygiene.ts'
+ import { resolveDesktopPaths } from './paths.ts'
+ import { DesktopProjectManager } from './project-manager.ts'
+ import { DesktopHostFatalError, DesktopHostProcess, DesktopHostUncleanExitError } from './host-process.ts'
+@@ -535,6 +536,7 @@ async function main(): Promise<void> {
+       })
+     return {
+       start: async () => {
++        await clearStaleHostCookies(session.defaultSession.cookies)
+         const ready = await host.start()
+         hostCookie = await authenticateWebHost(ready.url)
+         hostUrl = ready.url
+diff --git a/apps/desktop/tests/auth-cookie-hygiene.spec.ts b/apps/desktop/tests/auth-cookie-hygiene.spec.ts
+new file mode 100644
+index 00000000..0e8fa8ac
+--- /dev/null
++++ b/apps/desktop/tests/auth-cookie-hygiene.spec.ts
+@@ -0,0 +1,44 @@
++import { expect, it } from 'vitest'
++import { clearStaleHostCookies, type DesktopHostCookie } from '../src/auth-cookie-hygiene.ts'
++
++function fakeJar(cookies: readonly DesktopHostCookie[], unremovable: readonly string[] = []) {
++  const calls: string[] = []
++  const filters: { url?: string }[] = []
++  return {
++    calls,
++    filters,
++    jar: {
++      get: async (filter: { url?: string }) => { filters.push(filter); return cookies },
++      remove: async (url: string, name: string) => {
++        if (unremovable.includes(name)) throw new Error('jar refused')
++        calls.push(`${url} ${name}`)
++      },
++    },
++  }
++}
++
++it('lists the whole jar and removes only Host cookies', async () => {
++  const { calls, filters, jar } = fakeJar([
++    { domain: '127.0.0.1', name: 'dsh-auth-a', path: '/', secure: false },
++    { domain: '.example.com', name: 'session', path: '/', secure: true },
++    { domain: '127.0.0.1', name: 'dsh-auth-b', path: '/app', secure: true },
++  ])
++  await clearStaleHostCookies(jar)
++  expect(filters).toEqual([{}])
++  expect(calls).toEqual(['http://127.0.0.1/ dsh-auth-a', 'https://127.0.0.1/app dsh-auth-b'])
++})
++
++it('strips the leading dot Chromium keeps on a domain cookie', async () => {
++  const { calls, jar } = fakeJar([{ domain: '.127.0.0.1', name: 'dsh-auth-c', path: '/', secure: false }])
++  await clearStaleHostCookies(jar)
++  expect(calls).toEqual(['http://127.0.0.1/ dsh-auth-c'])
++})
++
++it('keeps launching when the jar refuses one removal', async () => {
++  const { calls, jar } = fakeJar([
++    { domain: '127.0.0.1', name: 'dsh-auth-refused', path: '/', secure: false },
++    { domain: '127.0.0.1', name: 'dsh-auth-next', path: '/', secure: false },
++  ], ['dsh-auth-refused'])
++  await clearStaleHostCookies(jar)
++  expect(calls).toEqual(['http://127.0.0.1/ dsh-auth-next'])
++})

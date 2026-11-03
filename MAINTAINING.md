@@ -31,9 +31,10 @@ try again. A manual dispatch ignores that backoff: dispatching is the retry.
 2. `build` runs once per queued tag, one at a time (`max-parallel: 1`), so the
    newest release is created last and GitHub's Latest pointer lands on it. Each
    job checks out the tag and runs `scripts/apply-linux-patch.sh`, which applies
-   `patches/0001-linux-appimage.patch` strictly, falls back to `patch --fuzz=2`
-   when upstream only moved context lines, and then verifies that every line the
-   patch adds is present and no `.rej` or conflict markers remain. It installs
+   every `patches/*.patch` in file-name order, each strictly, falls back to
+   `patch --fuzz=2` when upstream only moved context lines (replaying the earlier
+   patches on the reset checkout), and then verifies that every line each patch
+   adds is present and no `.rej` or conflict markers remain. It installs
    dependencies (three attempts, for registry flakiness) and runs
    `pnpm --filter @deepseek-ai/dsh-desktop run package:linux:x64:unsigned`.
 3. `DSH_LINUX_APPIMAGE_UPDATE_INFO` is deliberately unset, so `.upd_info` stays
@@ -84,18 +85,37 @@ unsigned target. `DSH_LINUX_APPIMAGE_UPDATE_INFO` still writes its value into
 `.upd_info` when set, which is useful for a local test build, but CI leaves it
 unset: the published AppImages have no update source at all.
 
-## Rebuilding the patch
+## The patches
 
-Upstream is pre-stable. If "Apply Linux patch" fails on a new tag:
+Both files are separate so that either can be dropped on its own once upstream
+stops needing it; nothing else in the build depends on how many there are.
+
+- `patches/0001-linux-appimage.patch` makes the tree package an AppImage:
+  Linux target support in the packaging scripts, window and taskbar icon, a
+  reload menu item, and the unsigned `package:linux:x64:unsigned` script.
+- `patches/0002-desktop-host-cookie-cleanup.patch` deletes the `dsh-auth-*`
+  cookies earlier launches left in the Desktop profile before the Host starts,
+  which otherwise pile up until the `Cookie` header exceeds the Host's header
+  limit and every start fails (see README troubleshooting).
+
+Adding a patch means dropping another `NNNN-name.patch` in `patches/`; the
+script picks it up in name order and it applies on top of the ones before it.
+
+## Rebuilding a patch
+
+Upstream is pre-stable. If "Apply Linux patch" fails on a new tag, rebuild only
+the patch that reports the failed hunks; it is applied on top of the earlier ones,
+so replay them first:
 
 ```sh
 git clone --depth 1 --branch <tag> https://github.com/deepseek-ai/deepseek-harness.git work
 cd work
+git apply /path/to/patches/0001-linux-appimage.patch   # every earlier patch, in order
 patch -p1 --fuzz=2 --forward --batch --no-backup-if-mismatch \
-  < /path/to/patches/0001-linux-appimage.patch
+  < /path/to/patches/NNNN-the-failing-patch.patch
 # apply the hunks it reports FAILED by hand, delete the .rej files, then
 git add -A
-git diff --cached --binary > /path/to/patches/0001-linux-appimage.patch
+git diff --cached --binary > /path/to/patches/NNNN-the-failing-patch.patch
 ```
 
 Not `git apply --3way`: a `--depth 1` clone has no blobs from the previous
@@ -110,6 +130,8 @@ passes with fuzz, the patch is not ready:
 ```sh
 git reset --hard && git clean -fd
 git apply --check patches/0001-linux-appimage.patch
+git apply patches/0001-linux-appimage.patch
+git apply --check patches/0002-desktop-host-cookie-cleanup.patch
 ```
 
 A regenerated patch should change only hunk headers and context lines. Compare
@@ -117,8 +139,7 @@ added and removed lines per file against the previous patch to confirm nothing
 else moved:
 
 ```sh
-git apply /path/to/patches/0001-linux-appimage.patch   # in a clean clone of the new tag
-scripts/apply-linux-patch.sh --verify . /path/to/patches/0001-linux-appimage.patch
+scripts/apply-linux-patch.sh --verify .    # after applying every patch in order
 ```
 
 Keep the `apps/desktop/package.json` hunks anchored on lines that do not change

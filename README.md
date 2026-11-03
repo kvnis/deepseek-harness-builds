@@ -87,6 +87,12 @@ on every start. Once the `Cookie` header pushes the request past the Host's
 which the desktop shell reports as the authentication failure above. Around 70
 accumulated launches are enough to get there.
 
+Builds from this repository carry `patches/0002-desktop-host-cookie-cleanup.patch`,
+which deletes the leftover cookies at boot before the Host sees a request, so
+upgrading to a build that includes it fixes the profile by itself. The manual
+step below is for builds from before that patch, or for an old build you want to
+keep running.
+
 Quit the app (**Application → Quit**), then count and delete those cookies. They
 are regenerated on the next start, and nothing else in the profile is affected.
 
@@ -101,10 +107,12 @@ c.commit()
 EOF
 ```
 
-The error returns after roughly 70 more launches. A lasting fix has to come from
-upstream: derive the cookie name from the host without the port, clear stale
-`dsh-auth-*` cookies at boot, and/or raise the Host's `maxHeaderSize`. If the log
-shows a different error, attach it to an issue instead.
+Upstream itself still accumulates them: it names the cookie after a random port
+and never clears the old ones. This repository works around that with
+`patches/0002-desktop-host-cookie-cleanup.patch`; the fix belongs upstream
+(derive the cookie name from the host without the port, and/or raise the Host's
+`maxHeaderSize`) and the patch can go away once it lands there. If the log shows
+a different error, attach it to an issue instead.
 
 ## Optional: Gear Lever
 
@@ -149,8 +157,9 @@ updated for you; leave it out and updates stay a manual download.
   older release line after a newer preview, the newest build can carry a lower
   version number than the one you have. Nothing reorders them for you, so go by
   the release date rather than the version.
-- **Startup can stop working on a long-lived profile.** Accumulated launch
-  cookies eventually exceed the Host's header limit and every start fails; see
+- **Startup could stop working on a long-lived profile.** Accumulated launch
+  cookies eventually exceeded the Host's header limit; builds that carry
+  `patches/0002` clear them at boot, so this only affects older builds. See
   [Troubleshooting](#startup-fails-with-desktop-welcome-web-authentication-failed).
 
 ## Disclaimer

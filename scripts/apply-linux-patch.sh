@@ -1,10 +1,17 @@
 #!/usr/bin/env bash
-# Apply patches/0001-linux-appimage.patch to a checkout of an upstream release tag.
+# Apply every patch in patches/ to a checkout of an upstream release tag.
 #
-# Strict `git apply` first. Upstream occasionally moves the context lines the
-# hunks are anchored on without changing the intent (that is what broke every
-# scheduled run between 2026-10-28 and 2026-10-30). When strict apply refuses,
-# retry with `patch --fuzz=2`, then verify the result before anyone builds on it:
+# Patches apply in file-name order, each on top of the previous one: 0001 makes
+# the Linux AppImage package, 0002 removes the Host cookies that pile up in the
+# Desktop profile. A patch may only list the files it touches, so the order in
+# this directory is the order they land in.
+#
+# Each patch gets a strict `git apply` first. Upstream occasionally moves the
+# context lines the hunks are anchored on without changing the intent (that is
+# what broke every scheduled run between 2026-10-28 and 2026-10-30). When strict
+# apply refuses, the checkout is reset to the tag, the earlier patches are
+# replayed, and the failing one is retried with `patch --fuzz=2`. The result is
+# verified before anyone builds on it:
 #
 #   * every file the patch creates exists,
 #   * every line the patch adds is present in the patched tree,
@@ -13,8 +20,10 @@
 # A fuzz apply that lands in the wrong place still fails the build instead of
 # shipping a wrong AppImage. Verification is the whole point of the fallback.
 #
-# Usage: scripts/apply-linux-patch.sh [upstream-dir] [patch-file]
-#        scripts/apply-linux-patch.sh --verify [upstream-dir] [patch-file]
+# Usage: scripts/apply-linux-patch.sh [upstream-dir] [patch-file...]
+#        scripts/apply-linux-patch.sh --verify [upstream-dir] [patch-file...]
+#
+# Without patch files every patches/*.patch is used, in order.
 set -euo pipefail
 
 root=$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)
@@ -26,21 +35,35 @@ if [[ ${1:-} == --verify ]]; then
 fi
 
 upstream=${1:-upstream}
-patch_file=${2:-$root/patches/0001-linux-appimage.patch}
+shift || true
 
+patches=()
+if [[ $# -eq 0 ]]; then
+  for candidate in "$root"/patches/*.patch; do
+    patches+=("$candidate")
+  done
+else
+  patches=("$@")
+fi
+
+[[ ${#patches[@]} -gt 0 ]] || { echo "apply-linux-patch: no patches found in $root/patches" >&2; exit 1; }
 [[ -d $upstream ]] || { echo "apply-linux-patch: no such directory: $upstream" >&2; exit 1; }
-[[ -f $patch_file ]] || { echo "apply-linux-patch: no such patch: $patch_file" >&2; exit 1; }
-patch_file=$(cd "$(dirname "$patch_file")" && pwd)/$(basename "$patch_file")
 
-# The fuzz retry has to reset the worktree, so a dirty checkout would lose work
-# silently. Refuse instead: the workflow always patches a fresh clone.
+for index in "${!patches[@]}"; do
+  patch_file=${patches[index]}
+  [[ -f $patch_file ]] || { echo "apply-linux-patch: no such patch: $patch_file" >&2; exit 1; }
+  patches[index]=$(cd "$(dirname "$patch_file")" && pwd)/$(basename "$patch_file")
+done
+
+# The fuzz retry has to reset the worktree to the tag, so a dirty checkout would
+# lose work silently. Refuse instead: the workflow always patches a fresh clone.
 if [[ $verify_only == false ]] && { ! git -C "$upstream" diff --quiet || ! git -C "$upstream" diff --cached --quiet; }; then
   echo "apply-linux-patch: refusing to patch a checkout with local changes in $upstream" >&2
   exit 1
 fi
 
 verify() {
-  python3 - "$upstream" "$patch_file" <<'PY'
+  python3 - "$upstream" "$1" <<'PY'
 import os
 import sys
 
@@ -106,53 +129,82 @@ for base, _, names in os.walk(upstream):
             problems.append(os.path.join(base, name) + ": rejected hunk left behind")
 
 if problems:
-    print("apply-linux-patch: verification failed", file=sys.stderr)
+    print(f"apply-linux-patch: verification failed for {os.path.basename(patch)}", file=sys.stderr)
     for problem in problems:
         print("  " + problem, file=sys.stderr)
     sys.exit(1)
 
-print(f"apply-linux-patch: verified {len(added)} patched files")
+print(f"apply-linux-patch: verified {len(added)} patched files of {os.path.basename(patch)}")
 PY
 }
 
-report() {
-  local mode=$1
-  echo "apply-linux-patch: patch applied with $mode"
+note() {
+  echo "apply-linux-patch: $1"
   if [[ -n ${GITHUB_STEP_SUMMARY:-} ]]; then
-    echo "Linux patch applied with **$mode**." >> "$GITHUB_STEP_SUMMARY"
+    echo "$1" >> "$GITHUB_STEP_SUMMARY"
   fi
 }
 
 if [[ $verify_only == true ]]; then
-  verify
-  report "verify-only"
+  for patch_file in "${patches[@]}"; do
+    verify "$patch_file"
+  done
+  note "Verified **${#patches[@]}** Linux patches."
   exit 0
 fi
 
-if git -C "$upstream" apply --verbose "$patch_file"; then
-  python3 "$root/scripts/linux-target-fixups.py" "$upstream"
-  verify
-  report strict
-  exit 0
-fi
-
-echo "apply-linux-patch: strict apply failed, retrying with fuzz" >&2
-git -C "$upstream" reset --quiet --hard
-git -C "$upstream" clean -fdq
-
-dry_run=$(cd "$upstream" && patch -p1 --fuzz=2 --forward --batch --no-backup-if-mismatch --dry-run < "$patch_file" 2>&1) || {
-  printf '%s\n' "$dry_run" >&2
-  echo "apply-linux-patch: fuzz dry run failed; the patch needs updating" >&2
-  exit 1
+reset_to_tag() {
+  git -C "$upstream" reset --quiet --hard
+  git -C "$upstream" clean -fdq
 }
-printf '%s\n' "$dry_run"
 
-(cd "$upstream" && patch -p1 --fuzz=2 --forward --batch --no-backup-if-mismatch < "$patch_file")
+apply_strict() {
+  git -C "$upstream" apply --verbose "$1"
+}
+
+apply_with_fuzz() {
+  local target=$1
+  local dry_run
+  dry_run=$(cd "$upstream" && patch -p1 --fuzz=2 --forward --batch --no-backup-if-mismatch --dry-run < "$target" 2>&1) || {
+    printf '%s\n' "$dry_run" >&2
+    echo "apply-linux-patch: fuzz dry run failed for $(basename "$target"); the patch needs updating" >&2
+    exit 1
+  }
+  printf '%s\n' "$dry_run"
+  (cd "$upstream" && patch -p1 --fuzz=2 --forward --batch --no-backup-if-mismatch < "$target")
+}
+
+reported=()
+for index in "${!patches[@]}"; do
+  patch_file=${patches[index]}
+  name=$(basename "$patch_file")
+  if apply_strict "$patch_file"; then
+    reported+=("$name applied strictly")
+    continue
+  fi
+
+  echo "apply-linux-patch: strict apply of $name failed, retrying with fuzz on a clean tag" >&2
+  reset_to_tag
+  for earlier in "${patches[@]:0:index}"; do
+    apply_strict "$earlier" || {
+      echo "apply-linux-patch: $(basename "$earlier") no longer applies strictly after the reset" >&2
+      exit 1
+    }
+  done
+  apply_with_fuzz "$patch_file"
+  reported+=("$name applied with fuzz")
+done
+
 python3 "$root/scripts/linux-target-fixups.py" "$upstream"
 
-verify
-report "fuzz"
+for patch_file in "${patches[@]}"; do
+  verify "$patch_file"
+done
 
-if [[ -n ${GITHUB_STEP_SUMMARY:-} ]]; then
-  echo "Upstream moved context lines; the patch landed with fuzz offsets. Check the release notes before trusting the artifact." >> "$GITHUB_STEP_SUMMARY"
+for line in "${reported[@]}"; do
+  note "$line"
+done
+
+if [[ " ${reported[*]} " == *" with fuzz "* ]]; then
+  note "Upstream moved context lines; at least one patch landed with fuzz offsets. Check the release notes before trusting the artifact."
 fi
