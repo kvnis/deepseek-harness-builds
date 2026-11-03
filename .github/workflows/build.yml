@@ -61,6 +61,28 @@ jobs:
           published=$(gh api --paginate "repos/{owner}/{repo}/releases?per_page=100" \
             --jq '.[] | select(.draft == false) | select([.assets[].name] | any(endswith(".AppImage"))) | .tag_name')
 
+          # Polling every 15 minutes turns a build that cannot succeed — a patch
+          # upstream moved out from under — into a failure every quarter hour.
+          # Back off for an hour after a failure and let the next tick try again;
+          # a manual dispatch skips the wait, because it is the retry.
+          if [ -z "${REQUESTED_TAG:-}" ] && [ "${GITHUB_EVENT_NAME:-}" = schedule ]; then
+            recent_failures=$(gh run list --workflow build.yml --limit 30 \
+              --json conclusion,createdAt \
+              | jq '[.[] | select(.conclusion == "failure")
+                     | select((.createdAt | fromdateiso8601) > (now - 3600))] | length')
+            if [[ ! "$recent_failures" =~ ^[0-9]+$ ]]; then
+              echo "cannot read recent run history: $recent_failures" >&2
+              exit 1
+            fi
+            if [ "$recent_failures" != 0 ]; then
+              echo "Backing off: $recent_failures failed run(s) in the last hour; not retrying yet." >> "$GITHUB_STEP_SUMMARY"
+              echo 'latest=none' >> "$GITHUB_OUTPUT"
+              echo 'tags=["none"]' >> "$GITHUB_OUTPUT"
+              echo 'count=0' >> "$GITHUB_OUTPUT"
+              exit 0
+            fi
+          fi
+
           selected=()
           if [ -n "${REQUESTED_TAG:-}" ]; then
             if [[ ! "$REQUESTED_TAG" =~ $tag_re ]]; then

@@ -11,6 +11,11 @@ ticks by six hours and dropped them outright, which with a six-hourly cron meant
 a published release could sit unbuilt for a day. A tick with nothing to build
 costs one ~10s `resolve` job, so frequent polling is cheap.
 
+Polling that often would also retry a build that cannot succeed — a patch
+upstream moved out from under — every quarter hour, so a scheduled tick that sees
+a failed run from the last hour reports nothing to build and lets the next tick
+try again. A manual dispatch ignores that backoff: dispatching is the retry.
+
 1. `resolve` lists upstream's non-draft releases newest first and this
    repository's own releases. The oldest upstream release that already has a
    release here is the anchor: every upstream release published after it that has
