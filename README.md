@@ -70,6 +70,42 @@ running.
 If the menu has no reload item, the build predates it: quit and start the
 AppImage again instead.
 
+## Troubleshooting
+
+### Startup fails with "desktop welcome: Web authentication failed"
+
+The app fails to start and `~/.config/@deepseek-ai/dsh-desktop/logs/` gains a
+`crash-*-host.log` containing `Error: desktop welcome: Web authentication
+failed`. Installed plugins and the build version are not the cause; downgrading
+will not help either.
+
+Every launch binds a random loopback port and stores a new browser-session
+cookie named after that port (`dsh-auth-…`, 30-day lifetime). Nothing removes the
+old ones, so the profile collects one per launch and Chromium sends all of them
+on every start. Once the `Cookie` header pushes the request past the Host's
+16 KiB header limit, the Host answers `431 Request Header Fields Too Large`,
+which the desktop shell reports as the authentication failure above. Around 70
+accumulated launches are enough to get there.
+
+Quit the app (**Application → Quit**), then count and delete those cookies. They
+are regenerated on the next start, and nothing else in the profile is affected.
+
+```sh
+python3 - <<'EOF'
+import os, sqlite3
+path = os.path.expanduser('~/.config/@deepseek-ai/dsh-desktop/Cookies')
+c = sqlite3.connect(path)
+print(c.execute("select count(*) from cookies where name like 'dsh-auth-%'").fetchone()[0], 'auth cookies')
+c.execute("delete from cookies where host_key = '127.0.0.1' and name like 'dsh-auth-%'")
+c.commit()
+EOF
+```
+
+The error returns after roughly 70 more launches. A lasting fix has to come from
+upstream: derive the cookie name from the host without the port, clear stale
+`dsh-auth-*` cookies at boot, and/or raise the Host's `maxHeaderSize`. If the log
+shows a different error, attach it to an issue instead.
+
 ## Optional: Gear Lever
 
 [Gear Lever](https://flathub.org/apps/it.mijorus.gearlever) adds the AppImage to
@@ -113,6 +149,9 @@ updated for you; leave it out and updates stay a manual download.
   older release line after a newer preview, the newest build can carry a lower
   version number than the one you have. Nothing reorders them for you, so go by
   the release date rather than the version.
+- **Startup can stop working on a long-lived profile.** Accumulated launch
+  cookies eventually exceed the Host's header limit and every start fails; see
+  [Troubleshooting](#startup-fails-with-desktop-welcome-web-authentication-failed).
 
 ## Disclaimer
 
