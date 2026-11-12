@@ -1,6 +1,6 @@
 diff --git a/apps/desktop/scripts/appimage-update-info.ts b/apps/desktop/scripts/appimage-update-info.ts
 new file mode 100644
-index 00000000..da81f25d
+index 000000000..da81f25dd
 --- /dev/null
 +++ b/apps/desktop/scripts/appimage-update-info.ts
 @@ -0,0 +1,96 @@
@@ -101,7 +101,7 @@ index 00000000..da81f25d
 +  writeAppImageUpdateInfo(path, words.join(' '))
 +}
 diff --git a/apps/desktop/scripts/desktop-build-version-discovery.ts b/apps/desktop/scripts/desktop-build-version-discovery.ts
-index 68291ca3..1a25564e 100644
+index 68291ca3b..1a25564e0 100644
 --- a/apps/desktop/scripts/desktop-build-version-discovery.ts
 +++ b/apps/desktop/scripts/desktop-build-version-discovery.ts
 @@ -22,7 +22,7 @@ import { parse } from 'semver'
@@ -123,7 +123,7 @@ index 68291ca3..1a25564e 100644
    /** Date segment to number within; defaults to today where the build runs. */
    readonly date?: string
 diff --git a/apps/desktop/scripts/desktop-package-environment.d.mts b/apps/desktop/scripts/desktop-package-environment.d.mts
-index ec9da721..e8c9c5c3 100644
+index ec9da721f..e8c9c5c31 100644
 --- a/apps/desktop/scripts/desktop-package-environment.d.mts
 +++ b/apps/desktop/scripts/desktop-package-environment.d.mts
 @@ -7,6 +7,13 @@
@@ -158,7 +158,7 @@ index ec9da721..e8c9c5c3 100644
    options?: { unsigned?: boolean, prepareOnly?: boolean, skipNotarization?: boolean },
  ): void
 diff --git a/apps/desktop/scripts/desktop-toolchain-preflight.ts b/apps/desktop/scripts/desktop-toolchain-preflight.ts
-index ff855cfd..08c8dc1f 100644
+index ff855cfd0..08c8dc1fc 100644
 --- a/apps/desktop/scripts/desktop-toolchain-preflight.ts
 +++ b/apps/desktop/scripts/desktop-toolchain-preflight.ts
 @@ -75,7 +75,7 @@ async function probeWindowsInstallerToolchain(environment: NodeJS.ProcessEnv): P
@@ -180,7 +180,7 @@ index ff855cfd..08c8dc1f 100644
  ): Promise<void> {
    const failures = await probeDesktopToolchain(platform, environment)
 diff --git a/apps/desktop/scripts/development-project.ts b/apps/desktop/scripts/development-project.ts
-index d544ce6d..2f9f1122 100644
+index d544ce6d3..2f9f11224 100644
 --- a/apps/desktop/scripts/development-project.ts
 +++ b/apps/desktop/scripts/development-project.ts
 @@ -16,7 +16,7 @@ import { dirname, join } from 'node:path'
@@ -202,7 +202,7 @@ index d544ce6d..2f9f1122 100644
  
  function readManifest(path: string): PackageManifest {
 diff --git a/apps/desktop/scripts/electron-builder-config.mjs b/apps/desktop/scripts/electron-builder-config.mjs
-index d5522e3d..4d81745b 100644
+index d5522e3da..4d81745b4 100644
 --- a/apps/desktop/scripts/electron-builder-config.mjs
 +++ b/apps/desktop/scripts/electron-builder-config.mjs
 @@ -66,7 +66,7 @@ export function createElectronBuilderConfig(
@@ -228,41 +228,60 @@ index d5522e3d..4d81745b 100644
      },
 diff --git a/apps/desktop/scripts/linux-office-kit.ts b/apps/desktop/scripts/linux-office-kit.ts
 new file mode 100644
-index 00000000..2bc776eb
+index 000000000..c632942af
 --- /dev/null
 +++ b/apps/desktop/scripts/linux-office-kit.ts
-@@ -0,0 +1,28 @@
+@@ -0,0 +1,47 @@
 +/** Keep the packaged LibreOffice kit on its WASM engine inside Electron's ASAR. */
 +
-+import { readFileSync, writeFileSync } from 'node:fs'
++import { existsSync, readFileSync, writeFileSync } from 'node:fs'
 +import { join } from 'node:path'
 +
 +/** The kit treats only an undefined lookup as a missing engine package. */
 +const PROBE = 'lstatSync(join(directory, name), { throwIfNoEntry: false }) !== void 0'
 +
-+/** Electron's ASAR filesystem returns null for a missing path, which the kit would read as present. */
++/** Electron's ASAR filesystem returns null for a missing path, which the probe would read as present. */
 +const PATCHED = 'lstatSync(join(directory, name), { throwIfNoEntry: false }) != null'
 +
++/** Error raised when the probe mistakes a missing Linux engine for an unfinished installation. */
++const INCOMPLETE = 'Installed LibreOfficeKit package is incomplete'
++
 +/**
-+ * Patch the engine-presence probe so Linux falls back to the installed WASM engine.
-+ *
-+ * No native Linux engine is published, and inside an ASAR the kit's `lstatSync` probe returns
-+ * `null` for the missing package, which it mistakes for an incomplete installation.
-+ * @param root - Materialized dsh runtime directory.
++ * Rewrite the one engine-presence probe in a compiled module.
++ * @param path - Compiled module holding the probe.
++ * @param subject - Package name reported when the module no longer matches.
 + * @returns Nothing; throws when the expected probe is absent or ambiguous.
 + */
-+export function patchLinuxOfficeKitEngineProbe(root: string): void {
-+  const path = join(root, 'node_modules', '@deepseek-ai', 'libreoffice-kit', 'lib', 'index.js')
++function patchProbe(path: string, subject: string): void {
 +  const source = readFileSync(path, 'utf8')
 +  const occurrences = source.split(PROBE).length - 1
 +  if (occurrences !== 1) {
-+    throw new Error(`desktop runtime: expected one LibreOffice engine probe in ${path}, found ${occurrences}`)
++    throw new Error(`desktop runtime: expected one LibreOffice engine probe in ${subject}, found ${occurrences}`)
 +  }
 +  writeFileSync(path, source.replace(PROBE, PATCHED))
 +}
++
++/**
++ * Patch every copy of the engine-presence probe in the materialized dsh runtime.
++ *
++ * No native Linux engine is published, and inside an ASAR the probe's `lstatSync` returns `null`
++ * for the missing package, which the caller mistakes for an incomplete installation. 0.2.2-rc.2
++ * added a second copy in `@deepseek-ai/dsh-office-kit`, which resolves the engine before the kit
++ * does, so patching only the kit leaves the packaged runtime without a converter.
++ * @param root - Materialized dsh runtime directory.
++ * @returns Nothing; throws when a module that still carries the probe cannot be patched.
++ */
++export function patchLinuxOfficeKitEngineProbe(root: string): void {
++  patchProbe(join(root, 'node_modules', '@deepseek-ai', 'libreoffice-kit', 'lib', 'index.js'), 'libreoffice-kit')
++  const officeKit = join(root, 'node_modules', '@deepseek-ai', 'dsh-office-kit', 'lib', 'index.js')
++  /* Upstream may fix the duplicate and remove the error; then there is nothing left to patch here. */
++  if (existsSync(officeKit) && readFileSync(officeKit, 'utf8').includes(INCOMPLETE)) {
++    patchProbe(officeKit, 'dsh-office-kit')
++  }
++}
 diff --git a/apps/desktop/scripts/linux-sharp.ts b/apps/desktop/scripts/linux-sharp.ts
 new file mode 100644
-index 00000000..8018c009
+index 000000000..8018c0097
 --- /dev/null
 +++ b/apps/desktop/scripts/linux-sharp.ts
 @@ -0,0 +1,51 @@
@@ -318,7 +337,7 @@ index 00000000..8018c009
 +  createRequire(join(options.root, 'package.json')).resolve('@img/sharp-wasm32/sharp.node')
 +}
 diff --git a/apps/desktop/scripts/package-target.ts b/apps/desktop/scripts/package-target.ts
-index b6bc6efb..fc2a3fbf 100644
+index b6bc6efb6..fc2a3fbf5 100644
 --- a/apps/desktop/scripts/package-target.ts
 +++ b/apps/desktop/scripts/package-target.ts
 @@ -1,16 +1,17 @@
@@ -477,7 +496,7 @@ index b6bc6efb..fc2a3fbf 100644
  }
  
 diff --git a/apps/desktop/scripts/prepare-cli.ts b/apps/desktop/scripts/prepare-cli.ts
-index d2b9e142..ad60996b 100644
+index d2b9e1420..ad60996b4 100644
 --- a/apps/desktop/scripts/prepare-cli.ts
 +++ b/apps/desktop/scripts/prepare-cli.ts
 @@ -8,10 +8,10 @@ import { join } from 'node:path'
@@ -494,7 +513,7 @@ index d2b9e142..ad60996b 100644
 +  if (platform !== 'win32') chmodSync(command, 0o755)
  }
 diff --git a/apps/desktop/scripts/prepare-dsh.ts b/apps/desktop/scripts/prepare-dsh.ts
-index a0698880..4c82f8fa 100644
+index a06988803..4c82f8faf 100644
 --- a/apps/desktop/scripts/prepare-dsh.ts
 +++ b/apps/desktop/scripts/prepare-dsh.ts
 @@ -33,6 +33,8 @@ import {
@@ -551,7 +570,7 @@ index a0698880..4c82f8fa 100644
        const cacheDirectory = resolveMacOSSignatureCacheDirectory(process.env, BUILD_PATHS.root)
        await packagingStep(process.env.DSH_DESKTOP_PACKAGING_RUN_DIR, 'sign:dsh-native', () => signMacOSRuntime(DSH_OUTPUT_ROOT, resolveDesktopAppId(process.env), resolveMacOSSigningEnvironment(process.env), target.arch, cacheDirectory))
 diff --git a/apps/desktop/scripts/prepare-runtime.ts b/apps/desktop/scripts/prepare-runtime.ts
-index 4e338532..c92045ae 100644
+index 4e3385327..c92045ae9 100644
 --- a/apps/desktop/scripts/prepare-runtime.ts
 +++ b/apps/desktop/scripts/prepare-runtime.ts
 @@ -19,6 +19,13 @@ const RUNTIME_ROOT = BUILD_PATHS.runtime
@@ -578,7 +597,7 @@ index 4e338532..c92045ae 100644
      encoding: 'utf8', env: { ...process.env, ELECTRON_RUN_AS_NODE: '1' },
    }).trim()
 diff --git a/apps/desktop/scripts/smoke-packaged-runtime.ts b/apps/desktop/scripts/smoke-packaged-runtime.ts
-index 6c3c12c8..840fbef3 100644
+index 6c3c12c85..840fbef3a 100644
 --- a/apps/desktop/scripts/smoke-packaged-runtime.ts
 +++ b/apps/desktop/scripts/smoke-packaged-runtime.ts
 @@ -11,11 +11,15 @@ const paths = resolveDesktopTargetBuildPaths()
@@ -601,7 +620,7 @@ index 6c3c12c8..840fbef3 100644
    resolveDesktopPackageTarget(target))
  if (windows && !values.unsigned) await verifyWindowsCode(application)
 diff --git a/apps/desktop/scripts/smoke-prepared-runtime.ts b/apps/desktop/scripts/smoke-prepared-runtime.ts
-index a67bc28c..060759fb 100644
+index a67bc28c2..060759fbf 100644
 --- a/apps/desktop/scripts/smoke-prepared-runtime.ts
 +++ b/apps/desktop/scripts/smoke-prepared-runtime.ts
 @@ -23,7 +23,9 @@ export async function smokePreparedRuntime(
@@ -616,7 +635,7 @@ index a67bc28c..060759fb 100644
    try {
      const archive = runtimeArchivePath(root)
 diff --git a/apps/desktop/src/host-process.ts b/apps/desktop/src/host-process.ts
-index 8e26fb8d..7a332a65 100644
+index 8e26fb8d4..7a332a657 100644
 --- a/apps/desktop/src/host-process.ts
 +++ b/apps/desktop/src/host-process.ts
 @@ -154,6 +154,21 @@ export class DesktopHostFatalError extends Error {
@@ -651,7 +670,7 @@ index 8e26fb8d..7a332a65 100644
        if (typeof message === 'object' && message !== null && 'type' in message && message.type === 'plugin-operation') {
          const record = 'record' in message ? parsePluginOperationRecord(message.record) : undefined
 diff --git a/apps/desktop/src/main.ts b/apps/desktop/src/main.ts
-index 8f9cd823..2d6e8307 100644
+index 8f9cd823a..2d6e83077 100644
 --- a/apps/desktop/src/main.ts
 +++ b/apps/desktop/src/main.ts
 @@ -261,6 +261,11 @@ function platformLoginUrl(authorizeUrl: string): string {
