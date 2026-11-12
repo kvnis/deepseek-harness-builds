@@ -87,16 +87,23 @@ unset: the published AppImages have no update source at all.
 
 ## The patches
 
-Both files are separate so that either can be dropped on its own once upstream
-stops needing it; nothing else in the build depends on how many there are.
+One diff file remains, and it is replacement-only by design:
 
 - `patches/0001-linux-appimage.patch` makes the tree package an AppImage:
-  Linux target support in the packaging scripts, window and taskbar icon, a
-  reload menu item, and the unsigned `package:linux:x64:unsigned` script.
-- `patches/0002-desktop-host-cookie-cleanup.patch` deletes the `dsh-auth-*`
-  cookies earlier launches left in the Desktop profile before the Host starts,
-  which otherwise pile up until the `Cookie` header exceeds the Host's header
-  limit and every start fails (see README troubleshooting).
+  Linux target support in the packaging scripts, window and taskbar icon, and a
+  reload menu item.
+
+Every pure *insertion* (the `desktopName` manifest entry, the Linux package
+scripts, the Linux window icon, the retention guard, the wasm sharp prebuild)
+lives in `scripts/linux-target-fixups.py` instead. A diff hunk must quote three
+lines of surrounding code, so an insertion dies as soon as that code moves;
+0.2.2-rc.2 rewrote the window options, the retention script and the Host start
+block, and each of those needles killed the patch. The script inserts after one
+matched line and skips work already done, so churn below the anchor is harmless.
+
+The cookie cleanup that used to be a second patch is gone: upstream 0.2.2-rc.2
+calls `removeLegacyHostCookies` before it authenticates, so the profile no
+longer fills up with `dsh-auth-*` cookies.
 
 Adding a patch means dropping another `NNNN-name.patch` in `patches/`; the
 script picks it up in name order and it applies on top of the ones before it.
@@ -118,6 +125,9 @@ git add -A
 git diff --cached --binary > /path/to/patches/NNNN-the-failing-patch.patch
 ```
 
+Keep insertions out of the patch: add them to `scripts/linux-target-fixups.py`
+as another `insert_when_missing` call, which survives changes below its anchor.
+
 Not `git apply --3way`: a `--depth 1` clone has no blobs from the previous
 release, so the preimages the patch names do not exist and the merge has nothing
 to work from. Regenerate *before* running `scripts/linux-target-fixups.py`; its
@@ -131,7 +141,6 @@ passes with fuzz, the patch is not ready:
 git reset --hard && git clean -fd
 git apply --check patches/0001-linux-appimage.patch
 git apply patches/0001-linux-appimage.patch
-git apply --check patches/0002-desktop-host-cookie-cleanup.patch
 ```
 
 A regenerated patch should change only hunk headers and context lines. Compare

@@ -7,6 +7,13 @@ parameter and turned `desktopTargetPlatform` into a lookup table. A diff hunk
 anchored on those lines fails the moment they move, so the change lives here as
 narrow rewrites that match the *current* shape and refuse to run otherwise.
 
+Pure insertions next to churning lines live here too, for the same reason: a
+one-line insertion anchored on the line it follows survives every change below
+it, while a diff hunk has to quote the surrounding code and breaks when that
+code moves (0.2.2-rc.2 rewrote the window options and the retention script).
+The manifest entries and the Linux-only guards are all insertions, so they are
+written here and the patch stays a replacement-only diff.
+
 Run after patches/0001-linux-appimage.patch, before the build. It is idempotent
 and fails loudly, with the file and pattern, when upstream moves again.
 
@@ -14,6 +21,7 @@ Usage: scripts/linux-target-fixups.py <upstream-dir>
 """
 from __future__ import annotations
 
+import json
 import re
 import sys
 from pathlib import Path
@@ -163,10 +171,89 @@ def guard_linux_release_record(path: Path) -> None:
     path.write_text(text, encoding="utf-8")
 
 
+def insert_when_missing(path: Path, pattern: str, addition: str, marker: str, what: str) -> None:
+    """Insert `addition` after the line matching `pattern`, unless `marker` is present."""
+    text = path.read_text(encoding="utf-8")
+    if marker in text:
+        return
+    match = re.search(pattern, text, flags=re.M)
+    if match is None:
+        die(f"{path.name}: {what}: no line matching /{pattern}/")
+    path.write_text(text[: match.end()] + addition + text[match.end():], encoding="utf-8")
+
+
+def guard_linux_retention(path: Path) -> None:
+    """Refuse desktop retention for the local Linux target."""
+    insert_when_missing(
+        path,
+        r"(?m)^export async function retainDesktopCi\([^\n]*\): Promise<string> \{\n  const target = resolveDesktopBuildTarget\(env\)\n",
+        "  if (target === 'linux-x64') throw new Error('desktop retention: Linux is not a release target')\n",
+        "desktop retention: Linux is not a release target",
+        "retainDesktopCi target resolution",
+    )
+
+
+def keep_sharp_wasm32(path: Path) -> None:
+    """Keep the wasm sharp binary on disk; the Linux build stages it as a prebuild."""
+    insert_when_missing(
+        path,
+        r"(?m)^  const unpack = \[[^\n]*\n",
+        "    '**/node_modules/@img/sharp-wasm32/**/*',\n",
+        "sharp-wasm32",
+        "unpack array",
+    )
+
+
+def add_linux_window_icon(path: Path) -> None:
+    """Give Linux windows an explicit icon; GNOME and KDE take it from the window."""
+    insert_when_missing(
+        path,
+        r"(?m)^    show,\n(?=    \.\.\.\(process\.platform === 'win32' && primary \? \{\n)",
+        "    // GNOME and KDE take the taskbar icon from the window, not the AppImage's .desktop file.\n"
+        "    ...(process.platform === 'linux' ? { icon: desktopIconPath() } : {}),\n",
+        "process.platform === 'linux' ? { icon: desktopIconPath() }",
+        "createWindow BrowserWindow options",
+    )
+
+
+def add_linux_package_entries(path: Path) -> None:
+    """Declare the Linux desktop name and package scripts."""
+    insert_when_missing(
+        path,
+        r"(?m)^  \"name\": \"@deepseek-ai/dsh-desktop\",\n",
+        "  \"desktopName\": \"deepseek-harness.desktop\",\n",
+        "\"desktopName\"",
+        "desktop package.json name",
+    )
+    insert_when_missing(
+        path,
+        r"(?m)^    \"package:win:x64:dir\": \"tsx scripts/package-target\.ts win-x64 --dir\",\n",
+        "    \"package:linux:x64:unsigned\": \"tsx scripts/package-target.ts linux-x64 --unsigned\",\n"
+        "    \"package:linux:x64:dir\": \"tsx scripts/package-target.ts linux-x64 --dir\",\n",
+        "\"package:linux:x64:unsigned\"",
+        "desktop package scripts",
+    )
+    json.loads(path.read_text(encoding="utf-8"))
+
+
+def add_root_linux_script(path: Path) -> None:
+    """Expose the Linux package script from the workspace root."""
+    insert_when_missing(
+        path,
+        r"(?m)^    \"package:desktop:win:x64:dir\": \"pnpm --filter @deepseek-ai/dsh-desktop run package:win:x64:dir\",\n",
+        "    \"package:desktop:linux:x64:unsigned\": \"pnpm --filter @deepseek-ai/dsh-desktop run package:linux:x64:unsigned\",\n",
+        "\"package:desktop:linux:x64:unsigned\"",
+        "root package scripts",
+    )
+    json.loads(path.read_text(encoding="utf-8"))
+
+
+
 def main() -> None:
     if len(sys.argv) != 2:
         die("usage: linux-target-fixups.py <upstream-dir>")
-    root = Path(sys.argv[1]) / "apps" / "desktop" / "scripts"
+    workspace = Path(sys.argv[1])
+    root = workspace / "apps" / "desktop" / "scripts"
     declaration = root / "desktop-build-paths.d.mts"
     implementation = root / "desktop-build-paths.mjs"
     for path in (declaration, implementation):
@@ -177,12 +264,22 @@ def main() -> None:
     widen_implementation(implementation)
     add_linux_package_environment(root / "desktop-package-environment.mjs")
     guard_linux_release_record(root / "package-target.ts")
+    guard_linux_retention(root / "retain-desktop-ci.ts")
+    keep_sharp_wasm32(root / "electron-builder-config.mjs")
+    add_linux_window_icon(workspace / "apps" / "desktop" / "src" / "main.ts")
+    add_linux_package_entries(workspace / "apps" / "desktop" / "package.json")
+    add_root_linux_script(workspace / "package.json")
 
     for path, needle in (
         (declaration, WIDE_PLATFORM),
         (implementation, WIDE_UNION),
         (root / "desktop-package-environment.mjs", "localLinuxPackageEnvironment"),
         (root / "package-target.ts", "releaseRecordPath !== undefined"),
+        (root / "retain-desktop-ci.ts", "desktop retention: Linux is not a release target"),
+        (root / "electron-builder-config.mjs", "'**/node_modules/@img/sharp-wasm32/**/*'"),
+        (workspace / "apps" / "desktop" / "src" / "main.ts", "process.platform === 'linux' ? { icon: desktopIconPath() }"),
+        (workspace / "apps" / "desktop" / "package.json", "package:linux:x64:unsigned"),
+        (workspace / "package.json", "package:desktop:linux:x64:unsigned"),
     ):
         if needle not in path.read_text(encoding="utf-8"):
             die(f"{path.name}: widening did not land")

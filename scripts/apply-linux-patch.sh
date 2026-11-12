@@ -1,10 +1,10 @@
 #!/usr/bin/env bash
 # Apply every patch in patches/ to a checkout of an upstream release tag.
 #
-# Patches apply in file-name order, each on top of the previous one: 0001 makes
-# the Linux AppImage package, 0002 removes the Host cookies that pile up in the
-# Desktop profile. A patch may only list the files it touches, so the order in
-# this directory is the order they land in.
+# Patches apply in file-name order, each on top of the previous one. A patch may
+# only list the files it touches, so the order in this directory is the order
+# they land in. Pure insertions are not here: they live in
+# scripts/linux-target-fixups.py, which runs after every patch.
 #
 # Each patch gets a strict `git apply` first. Upstream occasionally moves the
 # context lines the hunks are anchored on without changing the intent (that is
