@@ -171,66 +171,78 @@ def guard_linux_release_record(path: Path) -> None:
     path.write_text(text, encoding="utf-8")
 
 
-def insert_when_missing(path: Path, pattern: str, addition: str, marker: str, what: str) -> None:
-    """Insert `addition` after the line matching `pattern`, unless `marker` is present."""
+def insert_after(path: Path, pattern: str, addition: str, what: str) -> None:
+    """Insert `addition` after the line matching `pattern`, once, judged by position."""
     text = path.read_text(encoding="utf-8")
-    if marker in text:
-        return
     match = re.search(pattern, text, flags=re.M)
     if match is None:
         die(f"{path.name}: {what}: no line matching /{pattern}/")
+    if text.startswith(addition, match.end()):
+        return
     path.write_text(text[: match.end()] + addition + text[match.end():], encoding="utf-8")
 
 
+def insert_before(path: Path, pattern: str, addition: str, what: str) -> None:
+    """Insert `addition` before the line matching `pattern`, once, judged by position."""
+    text = path.read_text(encoding="utf-8")
+    match = re.search(pattern, text, flags=re.M)
+    if match is None:
+        die(f"{path.name}: {what}: no line matching /{pattern}/")
+    if text[: match.start()].endswith(addition):
+        return
+    path.write_text(text[: match.start()] + addition + text[match.start():], encoding="utf-8")
+
 def guard_linux_retention(path: Path) -> None:
-    """Refuse desktop retention for the local Linux target."""
-    insert_when_missing(
-        path,
-        r"(?m)^export async function retainDesktopCi\([^\n]*\): Promise<string> \{\n  const target = resolveDesktopBuildTarget\(env\)\n",
-        "  if (target === 'linux-x64') throw new Error('desktop retention: Linux is not a release target')\n",
-        "desktop retention: Linux is not a release target",
-        "retainDesktopCi target resolution",
-    )
+    """Refuse desktop retention for the local Linux target.
+
+    The resolver needs the guard too: resolveDesktopBuildTarget is widened to
+    include linux-x64 while the runner route table still names release targets
+    only, so that comparison has to narrow the target before it matches.
+    """
+    guard = "  if (target === 'linux-x64') throw new Error('desktop retention: Linux is not a release target')\n"
+    for pattern, what in (
+        (r"(?m)^export function resolveDesktopRetentionRunner\([^\n]*\): string \{\n  const target = resolveDesktopBuildTarget\(env\)\n",
+         "resolveDesktopRetentionRunner target resolution"),
+        (r"(?m)^export async function retainDesktopCi\([^\n]*\): Promise<string> \{\n  const target = resolveDesktopBuildTarget\(env\)\n",
+         "retainDesktopCi target resolution"),
+    ):
+        insert_after(path, pattern, guard, what)
 
 
 def keep_sharp_wasm32(path: Path) -> None:
     """Keep the wasm sharp binary on disk; the Linux build stages it as a prebuild."""
-    insert_when_missing(
+    insert_after(
         path,
         r"(?m)^  const unpack = \[[^\n]*\n",
         "    '**/node_modules/@img/sharp-wasm32/**/*',\n",
-        "sharp-wasm32",
         "unpack array",
     )
 
 
 def add_linux_window_icon(path: Path) -> None:
     """Give Linux windows an explicit icon; GNOME and KDE take it from the window."""
-    insert_when_missing(
+    insert_before(
         path,
-        r"(?m)^    show,\n(?=    \.\.\.\(process\.platform === 'win32' && primary \? \{\n)",
+        r"(?m)^    \.\.\.\(process\.platform === 'win32' && primary \? \{\n",
         "    // GNOME and KDE take the taskbar icon from the window, not the AppImage's .desktop file.\n"
         "    ...(process.platform === 'linux' ? { icon: desktopIconPath() } : {}),\n",
-        "process.platform === 'linux' ? { icon: desktopIconPath() }",
         "createWindow BrowserWindow options",
     )
 
 
 def add_linux_package_entries(path: Path) -> None:
     """Declare the Linux desktop name and package scripts."""
-    insert_when_missing(
+    insert_after(
         path,
         r"(?m)^  \"name\": \"@deepseek-ai/dsh-desktop\",\n",
         "  \"desktopName\": \"deepseek-harness.desktop\",\n",
-        "\"desktopName\"",
         "desktop package.json name",
     )
-    insert_when_missing(
+    insert_after(
         path,
         r"(?m)^    \"package:win:x64:dir\": \"tsx scripts/package-target\.ts win-x64 --dir\",\n",
         "    \"package:linux:x64:unsigned\": \"tsx scripts/package-target.ts linux-x64 --unsigned\",\n"
         "    \"package:linux:x64:dir\": \"tsx scripts/package-target.ts linux-x64 --dir\",\n",
-        "\"package:linux:x64:unsigned\"",
         "desktop package scripts",
     )
     json.loads(path.read_text(encoding="utf-8"))
@@ -238,15 +250,13 @@ def add_linux_package_entries(path: Path) -> None:
 
 def add_root_linux_script(path: Path) -> None:
     """Expose the Linux package script from the workspace root."""
-    insert_when_missing(
+    insert_after(
         path,
         r"(?m)^    \"package:desktop:win:x64:dir\": \"pnpm --filter @deepseek-ai/dsh-desktop run package:win:x64:dir\",\n",
         "    \"package:desktop:linux:x64:unsigned\": \"pnpm --filter @deepseek-ai/dsh-desktop run package:linux:x64:unsigned\",\n",
-        "\"package:desktop:linux:x64:unsigned\"",
         "root package scripts",
     )
     json.loads(path.read_text(encoding="utf-8"))
-
 
 
 def main() -> None:
