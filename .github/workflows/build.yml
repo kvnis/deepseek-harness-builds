@@ -22,7 +22,10 @@ permissions:
   contents: write
 
 concurrency:
-  group: linux-appimage
+  # Scheduled ticks and the backfill they queue must not interleave their
+  # releases, but a manual backfill has no reason to wait behind another one:
+  # one pending run per group would cancel it. Give each dispatch its own group.
+  group: ${{ github.event_name == 'workflow_dispatch' && format('linux-appimage-dispatch-{0}', github.run_id) || 'linux-appimage' }}
   cancel-in-progress: false
 
 jobs:
