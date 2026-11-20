@@ -108,6 +108,27 @@ longer fills up with `dsh-auth-*` cookies.
 Adding a patch means dropping another `NNNN-name.patch` in `patches/`; the
 script picks it up in name order and it applies on top of the ones before it.
 
+### Backfilling tags the current patch no longer fits
+
+Tags published before the tree the current patch was rebased on (for example
+`dsh-v0.2.1-rc.4`) cannot take today's hunks. `patches/legacy/` keeps the last
+revision of the Linux patch that applied to such a tree verbatim, and
+`patches/legacy/era-map.tsv` maps each upstream tag to its file. When the tag
+being built is in that map, `apply-linux-patch.sh` uses that patch alone and
+skips `linux-target-fixups.py`: those revisions predate the script and already
+carry those insertions, so running both would double-apply them.
+
+Backfill a set of tags in one run instead of one dispatch per tag — GitHub keeps
+only one pending run per concurrency group, so a second queued dispatch cancels
+the first:
+
+```sh
+gh workflow run build.yml \
+  -f tag="dsh-v0.2.1-rc.4,dsh-v0.2.1-rc.3,dsh-v0.2.1-alpha.3"
+```
+
+The input is newest-first; the builds run oldest-first, like a scheduled run.
+
 ## Rebuilding a patch
 
 Upstream is pre-stable. If "Apply Linux patch" fails on a new tag, rebuild only
