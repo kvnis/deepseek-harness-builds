@@ -9,7 +9,7 @@ on:
   workflow_dispatch:
     inputs:
       tag:
-        description: Upstream release tag; blank builds every release this repository is missing
+        description: Upstream release tag, or a comma-separated list to backfill several; blank builds every release this repository is missing
         required: false
         type: string
       force:
@@ -60,6 +60,9 @@ jobs:
           # which older gh releases on the runner image reject.
           published=$(gh api --paginate "repos/{owner}/{repo}/releases?per_page=100" \
             --jq '.[] | select(.draft == false) | select([.assets[].name] | any(endswith(".AppImage"))) | .tag_name')
+          # Tags an explicit request may name; a typo must fail instead of
+          # creating a release nothing upstream ever published.
+          upstream_tags=$(cut -f1 <<<"$upstream")
 
           # Polling every 15 minutes turns a build that cannot succeed — a patch
           # upstream moved out from under — into a failure every quarter hour.
@@ -85,17 +88,27 @@ jobs:
 
           selected=()
           if [ -n "${REQUESTED_TAG:-}" ]; then
-            if [[ ! "$REQUESTED_TAG" =~ $tag_re ]]; then
-              echo "refusing unexpected tag: $REQUESTED_TAG" >&2
-              exit 1
-            fi
-            if [ "${FORCE:-false}" = true ]; then
-              selected=("$REQUESTED_TAG")
-            elif grep -qxF "$REQUESTED_TAG" <<<"$published"; then
-              echo "$REQUESTED_TAG already has a release; pass force to replace it." >> "$GITHUB_STEP_SUMMARY"
-            else
-              selected=("$REQUESTED_TAG")
-            fi
+            # A comma-separated list backfills several tags in one run: GitHub's
+            # concurrency group allows one running and one pending run, so seven
+            # separate dispatches would cancel each other.
+            requested=()
+            IFS=',' read -r -a requested <<<"${REQUESTED_TAG//[[:space:]]/}"
+            for tag in "${requested[@]}"; do
+              if [ -z "$tag" ]; then continue; fi
+              if [[ ! "$tag" =~ $tag_re ]]; then
+                echo "refusing unexpected tag: $tag" >&2
+                exit 1
+              fi
+              if ! grep -qxF "$tag" <<<"$upstream_tags"; then
+                echo "no upstream release for $tag" >&2
+                exit 1
+              fi
+              if [ "${FORCE:-false}" != true ] && grep -qxF "$tag" <<<"$published"; then
+                echo "$tag already has a release; pass force to replace it." >> "$GITHUB_STEP_SUMMARY"
+                continue
+              fi
+              selected+=("$tag")
+            done
           else
             # Anchor: when the oldest release built here was published. Everything
             # upstream published since then is fair game, so a gap near the top
