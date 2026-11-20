@@ -6,13 +6,16 @@ jobs:
   probe:
     runs-on: ubuntu-24.04
     steps:
-      - name: Create and delete a draft release
+      - uses: actions/checkout@v5
+      - name: Create a release the way the build does
         env:
           GH_TOKEN: ${{ github.token }}
           GH_REPO: ${{ github.repository }}
         run: |
           set -euo pipefail
-          id=$(gh api -X POST "repos/$GH_REPO/releases" -f tag_name=dsh-v0.0.0-probe -f name=probe -F draft=true --jq '.id')
-          echo "created $id"
-          gh api -X DELETE "repos/$GH_REPO/releases/$id"
+          echo hi > probe.txt
+          gh release create dsh-v0.0.0-probe2 probe.txt --title "probe" --notes "probe" \
+            --target "$(git rev-parse HEAD)" --latest=false
+          echo "created"
+          gh release delete dsh-v0.0.0-probe2 --yes --cleanup-tag
           echo "deleted"
