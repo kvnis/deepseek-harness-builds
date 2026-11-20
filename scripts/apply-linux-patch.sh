@@ -49,6 +49,23 @@ fi
 [[ ${#patches[@]} -gt 0 ]] || { echo "apply-linux-patch: no patches found in $root/patches" >&2; exit 1; }
 [[ -d $upstream ]] || { echo "apply-linux-patch: no such directory: $upstream" >&2; exit 1; }
 
+# Backfill builds of tags older than the current patch's base. patches/legacy
+# keeps the last revision that applied to such a tree verbatim; those patches
+# carry the insertions too, so linux-target-fixups.py must not run on them.
+legacy_patch=''
+if [[ -z ${DSH_LEGACY_PATCH:-} && -n ${TAG:-} && -f $root/patches/legacy/era-map.tsv ]]; then
+  while IFS=$'\t' read -r mapped_tag mapped_patch; do
+    [[ -z $mapped_tag || $mapped_tag == \#* ]] && continue
+    if [[ $mapped_tag == "$TAG" ]]; then legacy_patch=$root/patches/legacy/$mapped_patch; fi
+  done < "$root/patches/legacy/era-map.tsv"
+fi
+if [[ -n ${DSH_LEGACY_PATCH:-} ]]; then legacy_patch=${DSH_LEGACY_PATCH}; fi
+if [[ -n $legacy_patch ]]; then
+  [[ -f $legacy_patch ]] || { echo "apply-linux-patch: no such legacy patch: $legacy_patch" >&2; exit 1; }
+  echo "apply-linux-patch: using the legacy patch $(basename "$legacy_patch") for $TAG" >&2
+  patches=("$legacy_patch")
+fi
+
 for index in "${!patches[@]}"; do
   patch_file=${patches[index]}
   [[ -f $patch_file ]] || { echo "apply-linux-patch: no such patch: $patch_file" >&2; exit 1; }
@@ -195,7 +212,11 @@ for index in "${!patches[@]}"; do
   reported+=("$name applied with fuzz")
 done
 
-python3 "$root/scripts/linux-target-fixups.py" "$upstream"
+if [[ -n $legacy_patch ]]; then
+  note "Legacy patch $(basename "$legacy_patch") is self-contained; skipped the current-tree fixups."
+else
+  python3 "$root/scripts/linux-target-fixups.py" "$upstream"
+fi
 
 for patch_file in "${patches[@]}"; do
   verify "$patch_file"

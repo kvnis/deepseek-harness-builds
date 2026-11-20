@@ -1,0 +1,11 @@
+# Upstream tags that predate dsh-v0.2.2-alpha.3 and the patch rebased on it.
+# Each maps to the last Linux patch revision that applied to that tree without
+# edits, so a backfill build uses it verbatim instead of today's patch.
+# Format: <upstream tag>\t<patch file in this directory>
+dsh-v0.2.1-alpha.3	0.2.1-era.patch
+dsh-v0.2.1-alpha.4	0.2.1-era.patch
+dsh-v0.2.1-alpha.5	0.2.1-era.patch
+dsh-v0.2.1-rc.1	0.2.1-era.patch
+dsh-v0.2.1-rc.2	0.2.1-era.patch
+dsh-v0.2.1-rc.3	0.2.1-era.patch
+dsh-v0.2.1-rc.4	0.2.1-era.patch
