@@ -51,7 +51,7 @@ def widen_declaration(path: Path) -> None:
     if "export type DesktopBuildTarget" not in text:
         text = sub(
             text,
-            r"^(import type \{ DesktopAutoUpdateTarget \} from '\./desktop-auto-update-environment\.mjs'\n)",
+            r"^(import type \{ DesktopAutoUpdateTarget \} from '(?:\./|@deepseek-ai/dsh-desktop-publisher/)desktop-auto-update-environment\.mjs'\n)",
             r"\1\n/** Release targets the packaging pipeline can prepare; Linux builds are local and unsigned. */\n"
             r"export type DesktopBuildTarget = DesktopAutoUpdateTarget | 'linux-x64'\n",
             f"{path.name}: DesktopAutoUpdateTarget import",

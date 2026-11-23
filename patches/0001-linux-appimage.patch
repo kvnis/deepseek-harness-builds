@@ -106,8 +106,8 @@ index 68291ca3b..1a25564e0 100644
 +++ b/apps/desktop/scripts/desktop-build-version-discovery.ts
 @@ -22,7 +22,7 @@ import { parse } from 'semver'
  import { desktopBuildVersionPrefix, validateDesktopBuildVersion } from './desktop-build-version.mjs'
- import { DESKTOP_AUTO_UPDATE_ENV, resolveDesktopUploadConfig } from './desktop-auto-update-environment.mjs'
- import { createDesktopCos, DESKTOP_COS_REGION } from './desktop-cos.ts'
+ import { DESKTOP_AUTO_UPDATE_ENV, resolveDesktopUploadConfig } from '@deepseek-ai/dsh-desktop-publisher/desktop-auto-update-environment.mjs'
+ import { createDesktopCos, DESKTOP_COS_REGION } from '@deepseek-ai/dsh-desktop-publisher/desktop-cos.ts'
 -import type { DesktopPackageTargetName } from './package-target.ts'
 +import type { DesktopPackageBuildName } from './package-target.ts'
  
@@ -187,7 +187,7 @@ index d544ce6d3..2f9f11224 100644
  import { createDevelopmentProjectMetadata } from '../src/project-manager.ts'
  import type { DesktopRelease } from '../src/release.ts'
  import { DESKTOP_RUNTIME_FILE, type DesktopRuntimeDescriptor } from '../src/runtime-tree.ts'
--import type { DesktopAutoUpdateTarget } from './desktop-auto-update-environment.mjs'
+-import type { DesktopAutoUpdateTarget } from '@deepseek-ai/dsh-desktop-publisher/desktop-auto-update-environment.mjs'
 +import type { DesktopBuildTarget } from './desktop-build-paths.mjs'
  import { desktopTargetPlatform } from './desktop-build-paths.mjs'
  
@@ -353,7 +353,7 @@ index b6bc6efb6..fc2a3fbf5 100644
  import {
    desktopBuildRecordFilename,
    resolveDesktopAutoUpdateConfig,
- } from './desktop-auto-update-environment.mjs'
+ } from '@deepseek-ai/dsh-desktop-publisher/desktop-auto-update-environment.mjs'
  import { desktopArtifactOutput, desktopTargetBuildPaths } from './desktop-build-paths.mjs'
  import { packageMacOSArtifacts, type DesktopPrepackagedArtifact } from './package-macos.ts'
 -import { loadDesktopPackageEnvironment, localMacOSPackageEnvironment, validateDesktopPackageEnvironment } from './desktop-package-environment.mjs'
@@ -638,7 +638,7 @@ diff --git a/apps/desktop/src/host-process.ts b/apps/desktop/src/host-process.ts
 index 8e26fb8d4..7a332a657 100644
 --- a/apps/desktop/src/host-process.ts
 +++ b/apps/desktop/src/host-process.ts
-@@ -154,6 +154,21 @@ export class DesktopHostFatalError extends Error {
+@@ -169,6 +169,21 @@ export class DesktopHostFatalError extends Error {
    get diagnostic(): string | undefined { return this.#diagnostic }
  }
  
@@ -659,7 +659,7 @@ index 8e26fb8d4..7a332a657 100644
 +
  /** One Web backend running under the Electron executable in Node mode. */
  export class DesktopHostProcess {
-   private runId: PluginOperationRunId | undefined
+   readonly #authentication = new DesktopParentAuthentication()
 @@ -225,7 +240,7 @@ export class DesktopHostProcess {
      this.child = child
      child.stderr?.setEncoding('utf8')
